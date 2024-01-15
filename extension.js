@@ -1,10 +1,10 @@
 const vscode = require('vscode');
-const {provideInlineCompletionItems, triggerInlineCompletion} = require('./utils/inlineCompletionProvider');
-const {CustomWebviewProvider} = require('./utils/customWebviewProvider');
+const { provideInlineCompletionItems, triggerInlineCompletion } = require('./utils/inlineCompletionProvider');
+const { CustomWebviewProvider } = require('./utils/customWebviewProvider');
 
 function activate(context) {
-    
-    const languages = ['javascript', 'python', 'java', 'csharp', 'cpp', 'vue', 'html', 'css', 'typescript', 'javascriptreact'];
+
+    const languages = ['javascript', 'python', 'java', 'csharp', 'cpp', 'vue', 'html', 'css', 'typescript', 'javascriptreact', 'scripture'];
     let disposables = languages.map(language => {
         return vscode.languages.registerInlineCompletionItemProvider(
             language,
@@ -27,7 +27,7 @@ function activate(context) {
     );
 }
 
-function deactivate() {}
+function deactivate() { }
 
 module.exports = {
     activate,

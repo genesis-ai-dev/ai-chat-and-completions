@@ -11,36 +11,40 @@ let maxLength = 4000;
 let shouldProvideCompletion = false;
 
 async function provideInlineCompletionItems(document, position, context, token) {
+  vscode.window.showInformationMessage("provideInlineCompletionItems called");
   if (!shouldProvideCompletion) {
     return undefined;
   }
-  const text = (model.startsWith('gpt') && endpoint.startsWith("https://api")) ? await getCompletionTextGPT(document, position) : await getCompletionText(document, position); 
+  const text = (model.startsWith('gpt') && (
+    endpoint.startsWith("https://api") ||
+    endpoint.startsWith("https://localhost")
+  )) ? await getCompletionTextGPT(document, position) : await getCompletionText(document, position);
   let completionItem = new vscode.InlineCompletionItem(text, new vscode.Range(position, position));
   completionItem.range = new vscode.Range(position, position);
   shouldProvideCompletion = false;
   return [completionItem];
 }
 
-// 预处理文档
+// Preprocess the document
 function preprocessDocument(docText) {
-  // 分割所有行
+  // Split all lines
   let lines = docText.split("\r\n");
-  // 对每一行应用预处理规则
-  for(let i = 0; i < lines.length; i++) {
-    if(i > 0 && lines[i-1].trim() !== '' && isStartWithComment(lines[i])) {
+  // Apply preprocessing rules to each line
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0 && lines[i - 1].trim() !== '' && isStartWithComment(lines[i])) {
       lines[i] = "\r\n" + lines[i];
     }
   }
-  // 合并所有行
+  // Merge all lines
   return lines.join("\r\n");
 }
 
 function isStartWithComment(line) {
   let trimLine = line.trim();
-  // 定义注释起始字符列表
+  // Define a list of comment start symbols
   let commentStartSymbols = ['//', '#', '/*', '<!--', '{/*'];
-  for(let symbol of commentStartSymbols) {
-    if(trimLine.startsWith(symbol))
+  for (let symbol of commentStartSymbols) {
+    if (trimLine.startsWith(symbol))
       return true;
   }
   return false;
@@ -50,13 +54,13 @@ async function getCompletionText(document, position) {
   let language = document.languageId;
   let textBeforeCursor = document.getText(new vscode.Range(new vscode.Position(0, 0), position));
   textBeforeCursor = textBeforeCursor.length > maxLength ? textBeforeCursor.substr(textBeforeCursor.length - maxLength) : textBeforeCursor;
-  
-  // 对焦点前面的文档进行预处理
+
+  // Preprocess the document before the cursor
   textBeforeCursor = preprocessDocument(textBeforeCursor);
 
   let prompt = "";
   let stop = ["\n\n", "\r\r", "\r\n\r", "\n\r\n", "```"];
-  
+
   let lineContent = document.lineAt(position.line).text;
   let leftOfCursor = lineContent.substr(0, position.character).trim();
   if (leftOfCursor !== '') {
@@ -74,7 +78,8 @@ async function getCompletionText(document, position) {
     "max_tokens": 256,
     "temperature": temperature,
     "stream": false,
-    "stop": stop
+    "stop": stop,
+    "n": 2,
   };
   if (model) {
     data.model = model;
@@ -99,52 +104,53 @@ async function getCompletionText(document, position) {
     }
   } catch (error) {
     console.log("Error:", error.message);
-    vscode.window.showErrorMessage("服务访问失败。")
+    vscode.window.showErrorMessage("Service access failed.")
   }
 }
 
 async function getCompletionTextGPT(document, position) {
+  vscode.window.showInformationMessage("getCompletionTextGPT called");
   let textBeforeCursor = document.getText(new vscode.Range(new vscode.Position(0, 0), position));
   textBeforeCursor = textBeforeCursor.length > maxLength ? textBeforeCursor.substr(textBeforeCursor.length - maxLength) : textBeforeCursor;
   textBeforeCursor = preprocessDocument(textBeforeCursor);
   const url = endpoint + "/chat/completions";
   const messages = [
-      { "role": "system", "content": "No communication! Just continue writing the code provided by the user." },
-      { "role": "user", "content": textBeforeCursor }
+    { "role": "system", "content": "No communication! Just continue writing the code provided by the user." },
+    { "role": "user", "content": textBeforeCursor }
   ]
   const data = {
-      max_tokens: maxTokens,
-      temperature,
-      model,
-      stream: false,
-      messages,
-      stop: ["\n\n", "\r\r", "\r\n\r", "\n\r\n"]
+    max_tokens: maxTokens,
+    temperature,
+    model,
+    stream: false,
+    messages,
+    stop: ["\n\n", "\r\r", "\r\n\r", "\n\r\n"]
   };
   const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + apiKey
   }
   let text = "";
   try {
-      const config = {
-          method: 'POST',
-          url,
-          headers,
-          data: JSON.stringify(data)
+    const config = {
+      method: 'POST',
+      url,
+      headers,
+      data: JSON.stringify(data)
+    }
+    const response = await axios.request(config);
+    if (response && response.data && response.data.choices && response.data.choices.length > 0) {
+      text = response.data.choices[0].message.content;
+      if (text.startsWith("```")) {
+        const textLines = text.split('\n');
+        const startIndex = textLines.findIndex(line => line.startsWith("```"));
+        const endIndex = textLines.slice(startIndex + 1).findIndex(line => line.startsWith("```"));
+        text = endIndex >= 0 ? textLines.slice(startIndex + 1, startIndex + endIndex + 1).join('\n') : textLines.slice(startIndex + 1).join('\n');
       }
-      const response = await axios.request(config);
-      if (response && response.data && response.data.choices && response.data.choices.length > 0) {
-          text = response.data.choices[0].message.content;
-          if (text.startsWith("```")) {
-              const textLines = text.split('\n');
-              const startIndex = textLines.findIndex(line => line.startsWith("```"));
-              const endIndex = textLines.slice(startIndex + 1).findIndex(line => line.startsWith("```"));
-              text = endIndex >= 0 ? textLines.slice(startIndex+1, startIndex+endIndex+1).join('\n') : textLines.slice(startIndex+1).join('\n');
-          }
-      }
+    }
   } catch (error) {
-      console.log("Error:", error);
-      vscode.window.showErrorMessage("服务访问失败。");
+    console.log("Error:", error);
+    vscode.window.showErrorMessage("Service access failed.");
   }
   return text;
 }

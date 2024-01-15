@@ -24,7 +24,8 @@
     "onLanguage:html",
     "onLanguage:css",
     "onLanguage:typescript",
-    "onLanguage:javascriptreact"
+    "onLanguage:javascriptreact",
+    "onLanguage:scripture"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -33,7 +34,7 @@
       "properties": {
         "mini-ai-pilot.endpoint": {
           "type": "string",
-          "default": "http://127.0.0.1:5000/v1",
+          "default": "http://localhost:1234/v1",
           "description": "The endpoint for the completion API. Either OpenAI or local LLM."
         },
         "mini-ai-pilot.api_key": {
