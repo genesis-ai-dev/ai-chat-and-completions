@@ -1,7 +1,7 @@
 const vscode = require('vscode');
 const axios = require('axios');
 
-let config = vscode.workspace.getConfiguration('mini-ai-pilot');
+let config = vscode.workspace.getConfiguration('translators-copilot');
 let endpoint = config.get('endpoint');
 let apiKey = config.get('api_key')
 let model = config.get('model')

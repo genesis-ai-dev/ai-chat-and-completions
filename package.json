@@ -1,9 +1,9 @@
 {
-  "name": "mini-ai-pilot",
-  "displayName": "Mini AI Pilot",
-  "description": "A minimalist AI Copilot.",
+  "name": "translators-copilot",
+  "displayName": "Translator's Copilot",
+  "description": "A minimalist AI Copilot for translation assistance.",
   "repository": {
-    "url": "https://github.com/wuweinero/mini-ai-pilot"
+    "url": "https://github.com/genesis-ai-dev/ai-chat-and-completions.git"
   },
   "icon": "logo.png",
   "publisher": "wuweinero",
@@ -15,46 +15,36 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:javascript",
-    "onLanguage:python",
-    "onLanguage:java",
-    "onLanguage:csharp",
-    "onLanguage:cpp",
-    "onLanguage:vue",
-    "onLanguage:html",
-    "onLanguage:css",
-    "onLanguage:typescript",
-    "onLanguage:javascriptreact",
     "onLanguage:scripture"
   ],
   "main": "./extension.js",
   "contributes": {
     "configuration": {
-      "title": "mini-ai-pilot",
+      "title": "translators-copilot",
       "properties": {
-        "mini-ai-pilot.endpoint": {
+        "translators-copilot.endpoint": {
           "type": "string",
           "default": "http://localhost:1234/v1",
           "description": "The endpoint for the completion API. Either OpenAI or local LLM."
         },
-        "mini-ai-pilot.api_key": {
+        "translators-copilot.api_key": {
           "type": "string",
           "default": "sk-XXXXXXXX",
           "description": "Your own openai API key. Ignorable for local LLM."
         },
-        "mini-ai-pilot.model": {
+        "translators-copilot.model": {
           "type": "string",
           "default": "gpt-3.5-turbo",
           "description": "Model name selected for inference. Ignorable for local LLM."
         },
-        "mini-ai-pilot.max_tokens": {
+        "translators-copilot.max_tokens": {
           "type": "number",
           "default": 2048,
           "description": "The maximum number of output tokens for the completion API."
         },
-        "mini-ai-pilot.temperature": {
+        "translators-copilot.temperature": {
           "type": "number",
-          "default": 0.5,
+          "default": 0.2,
           "description": "The randomness level of output generation. A higher value leads to more random outputs."
         }
       }
@@ -76,7 +66,7 @@
       "activitybar": [
         {
           "id": "sideMenu",
-          "title": "MINI AI PILOT",
+          "title": "Translator's Copilot",
           "icon": "media/dark.svg"
         }
       ]

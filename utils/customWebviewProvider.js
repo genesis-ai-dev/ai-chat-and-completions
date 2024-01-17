@@ -2,7 +2,7 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 
-let config = vscode.workspace.getConfiguration('mini-ai-pilot');
+let config = vscode.workspace.getConfiguration('translators-copilot');
 let endpoint = config.get('endpoint');
 let apiKey = config.get('api_key')
 let model = config.get('model')
@@ -19,10 +19,11 @@ const loadWebviewHtml = (webviewView, extensionUri) => {
 
   const indexPath = path.join(extensionUri.fsPath, 'dist', 'index.html');
   let htmlContent = fs.readFileSync(indexPath, 'utf-8');
-  
+
   const resourceRegEx = /<(script|link).*?(src|href)="([^"]*?)".*?\/?>/g;
   htmlContent = htmlContent.replace(resourceRegEx, (match, tag, attribute, src) => {
     const resourcePath = vscode.Uri.file(path.join(extensionUri.fsPath, 'dist', src));
+    console.log({ resourcePath })
     const resourceUri = webviewView.webview.asWebviewUri(resourcePath);
     return `<${tag} ${attribute}="${resourceUri}" ${tag === 'link' ? 'rel="stylesheet"' : ''}></${tag}>`;
   });
@@ -44,21 +45,23 @@ const processFetchResponse = (webviewView, response) => {
       const reader = response.body.getReader()
       let decoder = new TextDecoder('utf-8')
 
-      reader.read().then(function processText({ done, value }) {
+      reader.read().then(
+        function processText({ done, value }) {
         if (done) {
           sendFinishMessage(webviewView)
           resolve()
           return
         }
         let chunk = decoder.decode(value)
-        // 使用 'data:'的切分
+        // Split using 'data:'
         let chunkArray = chunk.split("data:");
         chunkArray.forEach((jsonString) => {
           jsonString = jsonString.trim()
-          // 检查切分的字符串是否为空
+          // Check if the split string is empty
           if (jsonString.length > 0) {
             try {
               const payload = JSON.parse(jsonString)
+              console.log('29u3089u', { payload })
               let payloadTemp = payload['choices'][0]
               let sendChunk = payloadTemp['message'] ? payloadTemp['message']['content'] : payloadTemp['delta']['content']
               sendChunk && webviewView.webview.postMessage({
@@ -66,11 +69,11 @@ const processFetchResponse = (webviewView, response) => {
                 finished: false,
                 text: sendChunk
               })
-            }catch(error){
+            } catch (error) {
               console.log('Error:', error)
-            }   
+            }
           }
-        })          
+        })
         return reader.read().then(processText)
       }).catch(reject)
     } catch (error) {
@@ -91,7 +94,7 @@ class CustomWebviewProvider {
     if (activeEditor) {
       languageId = activeEditor.document.languageId;
     }
-    // 缩短selectedText的长度
+    // Shorten the length of selectedText
     if (selectedText.length > maxLength - 100) {
       selectedText = selectedText.substring(0, maxLength - 100);
     }
@@ -117,7 +120,7 @@ class CustomWebviewProvider {
   resolveWebviewView(webviewView) {
     loadWebviewHtml(webviewView, this._extensionUri);
     webviewView.webview.postMessage({ command: 'reload' });
-    
+
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
         webviewView.webview.postMessage({ command: 'reload' });
@@ -126,7 +129,7 @@ class CustomWebviewProvider {
 
     this.saveSelectionChanges(webviewView);
     vscode.window.onDidChangeActiveTextEditor(() => {
-      //当活动编辑器发生变化时，移除旧的监听器并添加新的
+      // When the active editor changes, remove the old listener and add a new one
       if (this.selectionChangeListener) {
         this.selectionChangeListener.dispose();
       }
@@ -145,13 +148,13 @@ class CustomWebviewProvider {
               stream: true,
               messages: JSON.parse(message.messages)
             };
-            if(model){
+            if (model) {
               data.model = model
             }
             const headers = {
               "Content-Type": "application/json"
             };
-            if(apiKey){
+            if (apiKey) {
               headers["Authorization"] = "Bearer " + apiKey
             }
             const response = await fetch(url, {
@@ -163,7 +166,7 @@ class CustomWebviewProvider {
             await processFetchResponse(webviewView, response)
             break;
           case 'abort-fetch':
-            if(abortController){
+            if (abortController) {
               abortController.abort()
             }
             break
@@ -173,7 +176,7 @@ class CustomWebviewProvider {
       } catch (error) {
         sendFinishMessage(webviewView);
         console.error("Error:", error);
-        vscode.window.showErrorMessage("服务访问失败。")
+        vscode.window.showErrorMessage("Service access failed.")
       }
     });
   }
