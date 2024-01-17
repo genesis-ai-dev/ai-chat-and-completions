@@ -22,9 +22,9 @@
     "configuration": {
       "title": "translators-copilot",
       "properties": {
-        "translators-copilot.endpoint": {
+        "translators-copilot.llmEndpoint": {
           "type": "string",
-          "default": "http://localhost:1234/v1",
+          "default": "https://api.openai.com/v1",
           "description": "The endpoint for the completion API. Either OpenAI or local LLM."
         },
         "translators-copilot.api_key": {
@@ -36,8 +36,7 @@
           "type": "string",
           "default": "gpt-3.5-turbo",
           "description": "Model name selected for inference. Ignorable for local LLM."
-        },
-        "translators-copilot.max_tokens": {
+        },        "translators-copilot.max_tokens": {
           "type": "number",
           "default": 2048,
           "description": "The maximum number of output tokens for the completion API."
