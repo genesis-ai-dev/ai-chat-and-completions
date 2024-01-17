@@ -3,8 +3,8 @@ const { provideInlineCompletionItems, triggerInlineCompletion } = require('./uti
 const { CustomWebviewProvider } = require('./utils/customWebviewProvider');
 
 function activate(context) {
-
-    const languages = ['javascript', 'python', 'java', 'csharp', 'cpp', 'vue', 'html', 'css', 'typescript', 'javascriptreact', 'scripture'];
+    vscode.window.showInformationMessage("Translators Copilot is now active!");
+    const languages = ['scripture']; // NOTE: add other languages as needed
     let disposables = languages.map(language => {
         return vscode.languages.registerInlineCompletionItemProvider(
             language,
