@@ -29,7 +29,7 @@
         },
         "translators-copilot.api_key": {
           "type": "string",
-          "default": "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",
+          "default": "",
           "description": "Your own openai API key. Ignorable for local LLM."
         },
         "translators-copilot.model": {
