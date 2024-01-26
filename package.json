@@ -17,7 +17,7 @@
   "activationEvents": [
     "onLanguage:scripture"
   ],
-  "main": "./extension.js",
+  "main": "./out/extension.js",
   "contributes": {
     "configuration": {
       "title": "translators-copilot",
@@ -29,14 +29,15 @@
         },
         "translators-copilot.api_key": {
           "type": "string",
-          "default": "sk-XXXXXXXX",
+          "default": "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",
           "description": "Your own openai API key. Ignorable for local LLM."
         },
         "translators-copilot.model": {
           "type": "string",
           "default": "gpt-3.5-turbo",
           "description": "Model name selected for inference. Ignorable for local LLM."
-        },        "translators-copilot.max_tokens": {
+        },
+        "translators-copilot.max_tokens": {
           "type": "number",
           "default": 2048,
           "description": "The maximum number of output tokens for the completion API."
@@ -91,7 +92,11 @@
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "format": "prettier --write ."
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",
@@ -100,7 +105,9 @@
     "@vscode/test-cli": "^0.0.4",
     "@vscode/test-electron": "^2.3.8",
     "eslint": "^8.56.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@typescript-eslint/eslint-plugin": "^6.4.1",
+    "@typescript-eslint/parser": "^6.4.1"
   },
   "dependencies": {
     "axios": "^1.6.5"

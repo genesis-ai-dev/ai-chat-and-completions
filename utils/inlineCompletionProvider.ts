@@ -1,4 +1,4 @@
-const vscode = require("vscode");
+import * as vscode from "vscode";
 const axios = require("axios");
 
 let config = vscode.workspace.getConfiguration("translators-copilot");
@@ -9,21 +9,20 @@ let temperature = config.get("temperature");
 let maxTokens = config.get("max_tokens");
 let maxLength = 4000;
 let shouldProvideCompletion = false;
-console.log({ config });
-async function provideInlineCompletionItems(
-  document,
-  position,
-  context,
-  token
-) {
+export async function provideInlineCompletionItems(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+  context: vscode.InlineCompletionContext,
+  token: vscode.CancellationToken
+): Promise<vscode.InlineCompletionItem[] | undefined> {
   vscode.window.showInformationMessage("provideInlineCompletionItems called");
   if (!shouldProvideCompletion) {
     return undefined;
   }
   const text =
-    model.startsWith("gpt") &&
-    (endpoint.startsWith("https://api") ||
-      endpoint.startsWith("https://localhost"))
+    (model as string).startsWith("gpt") &&
+    ((endpoint as string).startsWith("https://api") ||
+      (endpoint as string).startsWith("https://localhost"))
       ? await getCompletionTextGPT(document, position)
       : await getCompletionText(document, position);
   let completionItem = new vscode.InlineCompletionItem(
@@ -36,7 +35,7 @@ async function provideInlineCompletionItems(
 }
 
 // Preprocess the document
-function preprocessDocument(docText) {
+function preprocessDocument(docText: string) {
   // Split all lines
   let lines = docText.split("\r\n");
   // Apply preprocessing rules to each line
@@ -47,19 +46,20 @@ function preprocessDocument(docText) {
   }
   // Merge all lines
   return lines.join("\r\n");
-}
-
-function isStartWithComment(line) {
-  let trimLine = line.trim();
-  // Define a list of comment start symbols
-  let commentStartSymbols = ["//", "#", "/*", "<!--", "{/*"];
-  for (let symbol of commentStartSymbols) {
-    if (trimLine.startsWith(symbol)) return true;
+  function isStartWithComment(line: string): boolean {
+    let trimLine = line.trim();
+    // Define a list of comment start symbols
+    let commentStartSymbols = ["//", "#", "/*", "<!--", "{/*"];
+    for (let symbol of commentStartSymbols) {
+      if (trimLine.startsWith(symbol)) return true;
+    }
+    return false;
   }
-  return false;
 }
-
-async function getCompletionText(document, position) {
+async function getCompletionText(
+  document: vscode.TextDocument,
+  position: vscode.Position
+) {
   let language = document.languageId;
   let textBeforeCursor = document.getText(
     new vscode.Range(new vscode.Position(0, 0), position)
@@ -87,13 +87,22 @@ async function getCompletionText(document, position) {
     return;
   }
 
-  let data = {
+  let data: {
+    prompt: string;
+    max_tokens: number;
+    temperature: unknown;
+    stream: boolean;
+    stop: string[];
+    n: number;
+    model: {} | undefined;
+  } = {
     prompt: prompt,
     max_tokens: 256,
     temperature: temperature,
     stream: false,
     stop: stop,
     n: 2,
+    model: undefined,
   };
   if (model) {
     data.model = model;
@@ -102,6 +111,7 @@ async function getCompletionText(document, position) {
     "Content-Type": "application/json",
   };
   if (apiKey) {
+    // @ts-ignore
     headers["Authorization"] = "Bearer " + apiKey;
   }
   let config = {
@@ -121,13 +131,16 @@ async function getCompletionText(document, position) {
     ) {
       return response.data.choices[0].text.replace(/[\r\n]+$/g, "");
     }
-  } catch (error) {
+  } catch (error: any) {
     console.log("Error:", error.message);
     vscode.window.showErrorMessage("Service access failed.");
   }
 }
 
-async function getCompletionTextGPT(document, position) {
+async function getCompletionTextGPT(
+  document: vscode.TextDocument,
+  position: vscode.Position
+) {
   vscode.window.showInformationMessage("getCompletionTextGPT called");
   let textBeforeCursor = document.getText(
     new vscode.Range(new vscode.Position(0, 0), position)
@@ -198,12 +211,7 @@ async function getCompletionTextGPT(document, position) {
   return text;
 }
 
-function triggerInlineCompletion() {
+export function triggerInlineCompletion() {
   shouldProvideCompletion = true;
   vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
 }
-
-module.exports = {
-  provideInlineCompletionItems,
-  triggerInlineCompletion,
-};

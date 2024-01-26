@@ -1,4 +1,4 @@
-const vscode = require("vscode");
+import * as vscode from 'vscode'
 const fs = require("fs");
 const path = require("path");
 
@@ -9,9 +9,9 @@ let model = config.get("model");
 let maxTokens = config.get("max_tokens");
 let temperature = config.get("temperature");
 let maxLength = 4000;
-let abortController = null;
+let abortController: AbortController | null = null;
 
-const loadWebviewHtml = (webviewView, extensionUri) => {
+const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.Uri) => {
   webviewView.webview.options = {
     enableScripts: true,
     localResourceRoots: [
@@ -25,7 +25,7 @@ const loadWebviewHtml = (webviewView, extensionUri) => {
   const resourceRegEx = /<(script|link).*?(src|href)="([^"]*?)".*?\/?>/g;
   htmlContent = htmlContent.replace(
     resourceRegEx,
-    (match, tag, attribute, src) => {
+    (match: string, tag: string, attribute: string, src: string) => {
       const resourcePath = vscode.Uri.file(
         path.join(extensionUri.fsPath, "dist", src)
       );
@@ -40,7 +40,7 @@ const loadWebviewHtml = (webviewView, extensionUri) => {
   webviewView.webview.html = htmlContent;
 };
 
-const sendFinishMessage = (webviewView) => {
+const sendFinishMessage = (webviewView: vscode.WebviewView) => {
   webviewView.webview.postMessage({
     command: "response",
     finished: true,
@@ -48,19 +48,19 @@ const sendFinishMessage = (webviewView) => {
   });
 };
 
-const processFetchResponse = (webviewView, response) => {
-  return new Promise((resolve, reject) => {
+const processFetchResponse = (webviewView: vscode.WebviewView, response: Response) => {
+  return new Promise<void>((resolve, reject) => {
     try {
-      const reader = response.body.getReader();
+      const reader = response?.body?.getReader();
       let decoder = new TextDecoder("utf-8");
 
       reader
-        .read()
-        .then(function processText({ done, value }) {
+        ?.read()
+        .then(function processText({ done, value }): Promise<any|undefined> {
           if (done) {
             sendFinishMessage(webviewView);
             resolve();
-            return;
+            return Promise.resolve();
           }
           let chunk = decoder.decode(value);
           // Split using 'data:'
@@ -96,12 +96,14 @@ const processFetchResponse = (webviewView, response) => {
   });
 };
 
-class CustomWebviewProvider {
-  constructor(extensionUri) {
+export class CustomWebviewProvider {
+  _extensionUri: any;
+  selectionChangeListener: any;
+  constructor(extensionUri: vscode.Uri) {
     this._extensionUri = extensionUri;
   }
 
-  sendSelectMessage(webviewView, selectedText) {
+  sendSelectMessage(webviewView: vscode.WebviewView, selectedText: string) {
     const activeEditor = vscode.window.activeTextEditor;
     let languageId = "";
     if (activeEditor) {
@@ -119,7 +121,7 @@ class CustomWebviewProvider {
     });
   }
 
-  saveSelectionChanges(webviewView) {
+  saveSelectionChanges(webviewView: vscode.WebviewView) {
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) {
       this.selectionChangeListener =
@@ -132,7 +134,7 @@ class CustomWebviewProvider {
     }
   }
 
-  resolveWebviewView(webviewView) {
+  resolveWebviewView(webviewView: vscode.WebviewView) {
     loadWebviewHtml(webviewView, this._extensionUri);
     webviewView.webview.postMessage({ command: "reload" });
 
@@ -155,7 +157,7 @@ class CustomWebviewProvider {
       try {
         switch (message.command) {
           case "fetch":
-            abortController = new AbortController();
+             abortController = new AbortController();
             const url = endpoint + "/chat/completions";
             console.log({ url, endpoint, apiKey });
             const data = {
@@ -163,6 +165,7 @@ class CustomWebviewProvider {
               temperature: temperature,
               stream: true,
               messages: JSON.parse(message.messages),
+              model: undefined as any
             };
             if (model) {
               data.model = model;
@@ -171,6 +174,7 @@ class CustomWebviewProvider {
               "Content-Type": "application/json",
             };
             if (apiKey) {
+              // @ts-ignore
               headers["Authorization"] = "Bearer " + apiKey;
             }
             const response = await fetch(url, {
