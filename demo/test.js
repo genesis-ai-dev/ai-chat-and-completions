@@ -1,4 +1,4 @@
-let a = [1,5,3,4]
+let arr = [1,5,3,4]
 
 // 定义一个冒泡排序算法函数
 function bubbleSort(arr) {
@@ -14,3 +14,7 @@ function bubbleSort(arr) {
     }
     return arr;
 }
+
+// 调用 bubbleSort 函数
+let sortedArr = bubbleSort(arr);
+console.log(sortedArr);
