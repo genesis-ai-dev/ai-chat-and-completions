@@ -9,8 +9,51 @@ let apiKey = config.get("api_key");
 let model = config.get("model");
 let temperature = config.get("temperature");
 let maxTokens = config.get("max_tokens");
+let sourceTextFile = "";
+initializeSourceTextFile();
 let maxLength = 4000;
 let shouldProvideCompletion = false;
+
+// Listen for dynamic updates to the configuration
+vscode.workspace.onDidChangeConfiguration((event) => {
+  if (event.affectsConfiguration("translators-copilot")) {
+    config = vscode.workspace.getConfiguration("translators-copilot");
+    endpoint = config.get("llmEndpoint");
+    apiKey = config.get("api_key");
+    model = config.get("model");
+    temperature = config.get("temperature");
+    maxTokens = config.get("max_tokens");
+    initializeSourceTextFile();
+  }
+});    
+
+// Function to initialize the source text file
+async function initializeSourceTextFile() {
+  let foundSourceTextFile = await findSourceText();
+  sourceTextFile = foundSourceTextFile ? foundSourceTextFile : "";
+  console.log({ sourceTextFile });
+}
+
+// Function to find the source text file
+async function findSourceText(): Promise<string | undefined> {
+  const configuredFile =config.get("sourceTextFile") as string;
+  if (configuredFile && configuredFile.endsWith('.bible')) {
+    return configuredFile;
+  }
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (workspaceFolders && workspaceFolders.length > 0) {
+    const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "./.project/sourceTextBibles/");
+    try {
+      const files = await vscode.workspace.fs.readDirectory(fileUri);
+      const bibleFile = files.find(file => file[0].endsWith('.bible'));
+      return bibleFile ? bibleFile[0] : undefined;
+    } catch (error) {
+      console.error("Error reading directory:", error);
+      return undefined;
+    }
+  }
+  return undefined;
+}
 
 // Function to provide inline completion items in the editor
 export async function provideInlineCompletionItems(
@@ -60,6 +103,13 @@ async function findVerseRef() {
 
 // Function to read the source language Bible file and find the verse
 async function findSourceVerse(sourceFile: string, verseRef: string): Promise<string | undefined> {
+  
+  // Check if the source file is specified
+  if (!sourceFile) {
+    vscode.window.showErrorMessage('Source file not specified.');
+    return undefined;
+  }
+
   try {
     // Get the workspace folders
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -220,7 +270,7 @@ async function getCompletionTextGPT(
 
   // Finds the source verse from the source language Bible file
   if (verseRef) {
-    const foundSourceVerse = await findSourceVerse("eng-eng-asv.bible", verseRef); //replace with the source language Bible file!
+    const foundSourceVerse = await findSourceVerse(sourceTextFile, verseRef);
     if (foundSourceVerse) {
       sourceVerse = foundSourceVerse;
       console.log({ sourceVerse });
