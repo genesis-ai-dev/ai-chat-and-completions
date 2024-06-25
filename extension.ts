@@ -16,7 +16,9 @@ function activate(context: vscode.ExtensionContext) {
 
   let commandDisposable = vscode.commands.registerCommand(
     "extension.triggerInlineCompletion",
-    triggerInlineCompletion
+    async () => {
+      await triggerInlineCompletion();
+    }
   );
 
   context.subscriptions.push(commandDisposable);
