@@ -33,6 +33,14 @@ const maxLength = 4000;
 const similarPairsCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
 let sourceTextFilePath: string | null = null;
 let shouldProvideCompletion = false;
+const bookOrder = [
+    'GEN', 'EXO', 'LEV', 'NUM', 'DEU', 'JOS', 'JDG', 'RUT', '1SA', '2SA', '1KI', '2KI',
+    '1CH', '2CH', 'EZR', 'NEH', 'EST', 'JOB', 'PSA', 'PRO', 'ECC', 'SNG', 'ISA', 'JER',
+    'LAM', 'EZK', 'DAN', 'HOS', 'JOL', 'AMO', 'OBA', 'JON', 'MIC', 'NAM', 'HAB', 'ZEP',
+    'HAG', 'ZEC', 'MAL', 'MAT', 'MRK', 'LUK', 'JHN', 'ACT', 'ROM', '1CO', '2CO', 'GAL',
+    'EPH', 'PHP', 'COL', '1TH', '2TH', '1TI', '2TI', 'TIT', 'PHM', 'HEB', 'JAS', '1PE',
+    '2PE', '1JN', '2JN', '3JN', 'JUD', 'REV'
+];
 
 let config = vscode.workspace.getConfiguration("translators-copilot");
 
@@ -152,7 +160,7 @@ async function findSourceText(): Promise<string | null> {
     // Get the configuration for the "translators-copilot" extension
     const config = vscode.workspace.getConfiguration("translators-copilot");
     // Retrieve the configured source text file name from the configuration
-    const configuredFile = config.get("sourceTextFile") as string;
+    const configuredFile = config.get("sourceTextFilePath") as string;
     // Get the list of workspace folders
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
@@ -323,7 +331,6 @@ async function getVerseData(document: vscode.TextDocument, position: vscode.Posi
             missingResources.push("verse reference");
         }
 
-        //FIXME: add a default source text
         // Check if the source text file is available and find the source verse
         if (!sourceTextFilePath) {
             missingResources.push("source text file");
@@ -375,7 +382,7 @@ async function getVerseData(document: vscode.TextDocument, position: vscode.Posi
         
         // Retrieve the surrounding context
         try {
-            verseData.surroundingContext = await getSurroundingContext(verseData.verseRef, 5);
+            verseData.surroundingContext = await getSurroundingContext(verseData.verseRef);
         } catch (error) {
             console.warn(`Error getting surrounding context: ${error}`);
             verseData.surroundingContext = "Surrounding context unavailable";
@@ -400,6 +407,7 @@ async function getVerseData(document: vscode.TextDocument, position: vscode.Posi
         vscode.window.showWarningMessage(`Some resources are unavailable: ${missingResources.join(", ")}. Completion may be less accurate.`);
     }
 
+    console.log({ verseData });
     return verseData as VerseData;
 }
 
@@ -643,31 +651,197 @@ async function getCurrentTranslation(document: vscode.TextDocument, verseRef: st
     }
 }
 
-async function getSurroundingContext(verseRef: string, verseCount: number): Promise<string> {
+//getSurroundingContext and its helpers
+async function getSurroundingContext(verseRef: string): Promise<string> {
     try {
         if (sourceTextFilePath === null) {
             throw new Error('Source text file not initialized.');
         }
+
+        const config = vscode.workspace.getConfiguration("translators-copilot");
+        const n = config.get<number>("surroundingVerseCount") || 5;
+
         const [book, chapterVerse] = verseRef.split(' ');
         const [chapter, verse] = chapterVerse.split(':').map(Number);
-        
-        let context = "";
-        for (let i = Math.max(1, verse - verseCount); i <= verse + verseCount; i++) {
-            const currentVerse = `${book} ${chapter}:${i}`;
+
+        let versePairs: { source: string, target: string | null }[] = [];
+        let verseRefs = await getVerseRefs(book, chapter, verse, n);
+
+        for (let ref of verseRefs) {
             try {
-                const verseText = await findSourceVerse(sourceTextFilePath, currentVerse);
-                context += verseText + "\n";
+                const sourceVerse = await findSourceVerseForContext(sourceTextFilePath, ref);
+                const targetVerse = await findTargetVerse(ref);
+
+                if (sourceVerse) {
+                    versePairs.push({
+                        source: sourceVerse,
+                        target: targetVerse || null
+                    });
+                }
             } catch (error) {
-                console.warn(`Failed to find verse ${currentVerse}: ${error}`);
-                // Continue to the next verse
+                console.warn(`Error processing verse ${ref}: ${error}`);
             }
         }
-        
-        return context.trim();
+
+        return JSON.stringify({ verse_pairs: versePairs }, null, 2);
     } catch (error) {
         console.error(`Error getting surrounding context for ${verseRef}`, error);
         throw error;
     }
+}
+
+async function getVerseRefs(book: string, chapter: number, verse: number, n: number): Promise<string[]> {
+    let refs = [];
+    let currentBook = book;
+    let currentChapter = chapter;
+    let currentVerse = verse;
+
+    // Get preceding verses
+    for (let i = 0; i < n; i++) {
+        currentVerse--;
+        if (currentVerse < 1) {
+            currentChapter--;
+            if (currentChapter < 1) {
+                const previousBook = await getPreviousBook(currentBook);
+                if (!previousBook) break;
+                currentBook = previousBook;
+                currentChapter = await getLastChapter(currentBook);
+            }
+            currentVerse = await getLastVerse(currentBook, currentChapter);
+        }
+        refs.unshift(`${currentBook} ${currentChapter}:${currentVerse}`);
+    }
+
+    // Reset to original verse
+    currentBook = book;
+    currentChapter = chapter;
+    currentVerse = verse;
+    refs.push(`${currentBook} ${currentChapter}:${currentVerse}`);
+
+    // Get following verses
+    for (let i = 0; i < Math.floor(n/2); i++) {
+        currentVerse++;
+        let lastVerse = await getLastVerse(currentBook, currentChapter);
+        if (currentVerse > lastVerse) {
+            currentChapter++;
+            let lastChapter = await getLastChapter(currentBook);
+            if (currentChapter > lastChapter) {
+                const nextBook = await getNextBook(currentBook);
+                if (!nextBook) break;
+                currentBook = nextBook;
+                currentChapter = 1;
+            }
+            currentVerse = 1;
+        }
+        refs.push(`${currentBook} ${currentChapter}:${currentVerse}`);
+    }
+
+    console.log({ refs });
+    return refs;
+}
+
+async function findTargetVerse(verseRef: string): Promise<string | null> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        throw new Error('No workspace folder is open.');
+    }
+
+    const [book, chapterVerse] = verseRef.split(' ');
+    const [chapter] = chapterVerse.split(':');
+
+    const targetDir = path.join(workspaceFolders[0].uri.fsPath, 'files', 'target');
+    const codexFile = path.join(targetDir, `${book}.codex`);
+
+    try {
+        const content = await fs.promises.readFile(codexFile, 'utf-8');
+        const notebook = JSON.parse(content);
+
+        // Find the cell with the correct chapter
+        const chapterCell = notebook.cells.find((cell: any) => 
+            cell.kind === 2 && 
+            cell.language === 'scripture' && 
+            cell.value.includes(`${book} ${chapter}:`)
+        );
+
+        if (!chapterCell) {
+            console.warn(`Chapter ${chapter} not found in ${book}.codex`);
+            return null;
+        }
+
+        const lines = chapterCell.value.split('\r\n');
+        const targetLine = lines.find((line: any) => line.startsWith(verseRef));
+
+        if (targetLine) {
+            return targetLine.trim();
+        }
+
+        console.warn(`Verse ${verseRef} not found in ${book}.codex`);
+        return null;
+    } catch (error) {
+        console.error(`Error reading or parsing ${book}.codex:`, error);
+        return null;
+    }
+}
+
+async function getPreviousBook(book: string): Promise<string | null> {
+    const index = bookOrder.indexOf(book);
+    if (index > 0) {
+        return bookOrder[index - 1];
+    }
+    return null;
+}
+
+async function getNextBook(book: string): Promise<string | null> {
+    const index = bookOrder.indexOf(book);
+    if (index < bookOrder.length - 1) {
+        return bookOrder[index + 1];
+    }
+    return null;
+}
+
+async function getLastChapter(book: string): Promise<number> {
+    if (!sourceTextFilePath) {
+        throw new Error('Source text file path is not initialized.');
+    }
+    const content = await fs.promises.readFile(sourceTextFilePath, 'utf-8');
+    const lines = content.split('\n');
+    let lastChapter = 0;
+    for (const line of lines) {
+        if (line.startsWith(book)) {
+            const [, chapterVerse] = line.split(' ');
+            const [chapter] = chapterVerse.split(':');
+            lastChapter = Math.max(lastChapter, parseInt(chapter));
+        }
+    }
+    return lastChapter;
+}
+
+async function getLastVerse(book: string, chapter: number): Promise<number> {
+    if (!sourceTextFilePath) {
+        throw new Error('Source text file path is not initialized.');
+    }
+    const content = await fs.promises.readFile(sourceTextFilePath, 'utf-8');
+    const lines = content.split('\n');
+    let lastVerse = 0;
+    for (const line of lines) {
+        if (line.startsWith(`${book} ${chapter}:`)) {
+            const [, chapterVerse] = line.split(' ');
+            const [, verse] = chapterVerse.split(':');
+            lastVerse = Math.max(lastVerse, parseInt(verse));
+        }
+    }
+    return lastVerse;
+}
+
+async function findSourceVerseForContext(sourceTextFilePath: string, verseRef: string): Promise<string> {
+    const content = await fs.promises.readFile(sourceTextFilePath, 'utf-8');
+    const lines = content.split('\n');
+    for (const line of lines) {
+        if (line.startsWith(verseRef)) {
+            return line.trim();
+        }
+    }
+    throw new Error(`Verse ${verseRef} not found in the source text.`);
 }
 
 //completions
