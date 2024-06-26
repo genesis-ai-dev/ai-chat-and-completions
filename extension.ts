@@ -1,39 +1,46 @@
+// In extension.ts
+
 import * as vscode from "vscode";
 import { CustomWebviewProvider } from "./utils/customWebviewProvider";
 import {
   triggerInlineCompletion,
   provideInlineCompletionItems,
+  initializeSourceTextFile
 } from "./utils/inlineCompletionProvider";
-function activate(context: vscode.ExtensionContext) {
-  vscode.window.showInformationMessage("Translators Copilot is now active!");
-  const languages = ["scripture"]; // NOTE: add other languages as needed
-  let disposables = languages.map((language) => {
-    return vscode.languages.registerInlineCompletionItemProvider(language, {
-      provideInlineCompletionItems,
+
+export async function activate(context: vscode.ExtensionContext) {
+  try {
+    vscode.window.showInformationMessage("Translators Copilot is now active!");
+
+    await initializeSourceTextFile();
+
+    const languages = ["scripture"]; 
+    let disposables = languages.map((language) => {
+      return vscode.languages.registerInlineCompletionItemProvider(language, {
+        provideInlineCompletionItems,
+      });
     });
-  });
-  disposables.forEach((disposable) => context.subscriptions.push(disposable));
+    disposables.forEach((disposable) => context.subscriptions.push(disposable));
 
-  let commandDisposable = vscode.commands.registerCommand(
-    "extension.triggerInlineCompletion",
-    async () => {
-      await triggerInlineCompletion();
-    }
-  );
+    let commandDisposable = vscode.commands.registerCommand(
+      "extension.triggerInlineCompletion",
+      async () => {
+        await triggerInlineCompletion();
+      }
+    );
 
-  context.subscriptions.push(commandDisposable);
+    context.subscriptions.push(commandDisposable);
 
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      "sideView",
-      new CustomWebviewProvider(context.extensionUri)
-    )
-  );
+    context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(
+        "sideView",
+        new CustomWebviewProvider(context.extensionUri)
+      )
+    );
+  } catch (error) {
+    console.error("Error activating extension", error);
+    vscode.window.showErrorMessage("Failed to activate Translators Copilot. Please check the logs for details.");
+  }
 }
 
-function deactivate() {}
-
-module.exports = {
-  activate,
-  deactivate,
-};
+export function deactivate() {}
