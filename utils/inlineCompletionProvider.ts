@@ -228,7 +228,8 @@ export async function getCompletionTextGPT(
             case "verse":
                 return await completeVerse(config, verseData);
             case "chapter":
-                return await completeChapter(document, position, config, verseData);
+                console.log("Completing the chapter.");
+                return "chapter completion logic not implemented yet.";
             case "token":
                 console.log("Completing as much as the token limit permits.");
                 return "token completion logic not implemented yet.";
@@ -859,84 +860,33 @@ function buildVerseMessages(verseData: VerseData) {
     return [
         {
             role: "system",
-            content: `You are an expert translator specializing in translating biblical texts from ${verseData.sourceLanguageName} to a target language. Your task is to complete the translation of a specific verse based on the provided context and resources. Some resources may be unavailable, but please provide the best translation possible with the given information.
+            content: `You are an expert biblical translator working on translating from ${verseData.sourceLanguageName} to [TARGET_LANGUAGE]. Your task is to complete a partial translation of a verse. Follow these guidelines:
 
-            Guidelines:
-            1. Use the 'source verse' as the primary text to translate, if available.
-            2. Refer to the 'similar pairs' for guidance on vocabulary and phrasing in the target language, if available.
-            3. Consider the 'surrounding context' to ensure your translation fits within the broader narrative, if available.
-            4. Use the 'source chapter' and 'current translation' for additional context if needed and if available.
-            5. Incorporate relevant information from 'other resources' if provided and available.
-            6. Complete only the missing part of the 'current verse'.
-            7. Maintain the style and tone consistent with biblical texts.
-            8. Do not add any commentary or explanation to your translation.
-            9. If crucial information is missing, provide the best possible translation based on available context.`
+            1. Prioritize accuracy to the source text while maintaining natural expression in the target language.
+            2. Maintain consistency with previously translated portions and the overall style of the project.
+            3. Use provided similar translations and surrounding context for guidance, but don't simply copy them.
+            4. Only complete the missing part of the verse; do not modify already translated portions.
+            5. Do not add explanatory content or commentary.
+            6. If crucial information is missing, provide the best possible translation based on available context.
+            7. Preserve any formatting or verse numbering present in the partial translation.`
         },
         {
             role: "user",
-            content: `Please complete the translation of the following verse:
+            content: `Complete the translation of this verse:
 
-            Source Language: ${verseData.sourceLanguageName}
-            Verse Reference: ${verseData.verseRef}
-            Source Verse: ${verseData.sourceVerse}
-            Current (Partial) Translation: ${verseData.currentVerse}
-            
-            Similar Translation Pairs:
-            ${verseData.similarPairs}
-            
-            Surrounding Context:
-            ${verseData.surroundingContext}
-            
-            Additional Resources:
-            ${verseData.otherResources}
-            
-            Please provide only the completed part of the translation, without repeating the reference or the already translated portion. If any crucial information is missing, please provide the best possible translation based on the available context.`
+            Reference: ${verseData.verseRef}
+            Source: ${verseData.sourceVerse}
+            Partial Translation: ${verseData.currentVerse}
+
+            ${verseData.similarPairs ? `Similar Translations:\n${verseData.similarPairs.split('\n').slice(0, 3).join('\n')}` : ''}
+
+            ${verseData.surroundingContext ? `Context:\n${verseData.surroundingContext.split('\n').slice(0, 5).join('\n')}` : ''}
+
+            ${verseData.otherResources ? `Additional Notes:\n${verseData.otherResources}` : ''}
+
+            Provide only the completed part of the translation.`
         }
     ];
-}
-
-async function completeChapter(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-    config: CompletionConfig,
-    verseData: VerseData
-): Promise<string> {
-    //FIXME: this implementation is stupid
-    try {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            throw new Error('No active text editor');
-        }
-
-        let currentLine = position.line;
-        let lines = document.getText().split('\n');
-        let completedText = "";
-
-        while (currentLine < lines.length) {
-            let lineText = lines[currentLine].trim();
-            if (lineText.match(/^[A-Z]{3} \d+:\d+/)) {
-                const messages = buildVerseMessages({ ...verseData, currentVerse: lineText });
-                let completedVerse = await makeCompletionRequest(config, messages, lineText);
-
-                await editor.edit(editBuilder => {
-                    const lineEnd = new vscode.Position(currentLine, lines[currentLine].length);
-                    editBuilder.insert(lineEnd, completedVerse);
-                });
-
-                completedText += completedVerse + "\n";
-                currentLine++;
-            } else if (lineText === '') {
-                break;
-            } else {
-                currentLine++;
-            }
-        }
-
-        return completedText;
-    } catch (error) {
-        console.error("Error completing chapter", error);
-        throw error;
-    }
 }
 
 //response and formatting
@@ -998,7 +948,6 @@ export {
     getCompletionText,
     getVerseData,
     completeVerse,
-    completeChapter,
     buildVerseMessages,
     makeCompletionRequest,
     formatCompletionResponse,
