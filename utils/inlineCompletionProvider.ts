@@ -221,6 +221,7 @@ export async function getCompletionTextGPT(
             throw new Error('Source text file not initialized.');
         }
 
+        await initializeConfig();
         const config = await getCompletionConfig();
         const verseData = await getVerseData(document, position);
     
@@ -703,10 +704,7 @@ async function getVerseRefs(book: string, chapter: number, verse: number, n: num
         if (currentVerse < 1) {
             currentChapter--;
             if (currentChapter < 1) {
-                const previousBook = await getPreviousBook(currentBook);
-                if (!previousBook) break;
-                currentBook = previousBook;
-                currentChapter = await getLastChapter(currentBook);
+                break;
             }
             currentVerse = await getLastVerse(currentBook, currentChapter);
         }
@@ -727,10 +725,7 @@ async function getVerseRefs(book: string, chapter: number, verse: number, n: num
             currentChapter++;
             let lastChapter = await getLastChapter(currentBook);
             if (currentChapter > lastChapter) {
-                const nextBook = await getNextBook(currentBook);
-                if (!nextBook) break;
-                currentBook = nextBook;
-                currentChapter = 1;
+                break;
             }
             currentVerse = 1;
         }
@@ -784,22 +779,6 @@ async function findTargetVerse(verseRef: string): Promise<string | null> {
     }
 }
 
-async function getPreviousBook(book: string): Promise<string | null> {
-    const index = bookOrder.indexOf(book);
-    if (index > 0) {
-        return bookOrder[index - 1];
-    }
-    return null;
-}
-
-async function getNextBook(book: string): Promise<string | null> {
-    const index = bookOrder.indexOf(book);
-    if (index < bookOrder.length - 1) {
-        return bookOrder[index + 1];
-    }
-    return null;
-}
-
 async function getLastChapter(book: string): Promise<number> {
     if (!sourceTextFilePath) {
         throw new Error('Source text file path is not initialized.');
@@ -849,18 +828,41 @@ async function findSourceVerseForContext(sourceTextFilePath: string, verseRef: s
 async function completeVerse(config: CompletionConfig, verseData: VerseData): Promise<string> {
     try {
         const messages = buildVerseMessages(verseData);
-        return await makeCompletionRequest(config, messages, verseData.currentVerse);
+
+        const response = await makeCompletionRequest(config, messages, verseData.currentVerse);
+        
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            throw new Error('No workspace folder is open.');
+        }
+        
+        const messagesFilePath = path.join(workspaceFolders[0].uri.fsPath, 'messages.txt');
+        
+        let fileContent = '';
+        for (let i = 0; i < messages.length; i++) {
+            fileContent += `Message ${i + 1} (${messages[i].role}):\n${messages[i].content}\n\n`;
+        }
+        fileContent += `Response:\n${response}\n`;
+
+        await fs.promises.writeFile(messagesFilePath, fileContent, 'utf-8');
+        
+        return response;
     } catch (error) {
         console.error("Error completing verse", error);
         throw error;
     }
 }
 
+
 function buildVerseMessages(verseData: VerseData) {
     return [
         {
             role: "system",
-            content: `You are an expert biblical translator working on translating from ${verseData.sourceLanguageName} to [TARGET_LANGUAGE]. Your task is to complete a partial translation of a verse. Follow these guidelines:
+            content: `You are an expert biblical translator working on translating from ${verseData.sourceLanguageName} to [TARGET_LANGUAGE]. Your task is to learn the target language, and complete a partial translation of a verse. 
+            
+            Use data provided by the user such as pairs of source-translation verses, the translation of the context, or other data to understand how the target language relates to ${verseData.sourceLanguageName}. Then translate the 'Verse to Complete'.
+            
+            Follow these guidelines:
 
             1. Prioritize accuracy to the source text while maintaining natural expression in the target language.
             2. Maintain consistency with previously translated portions and the overall style of the project.
@@ -876,15 +878,17 @@ function buildVerseMessages(verseData: VerseData) {
 
             Reference: ${verseData.verseRef}
             Source: ${verseData.sourceVerse}
-            Partial Translation: ${verseData.currentVerse}
+            Verse to Complete: ${verseData.currentVerse}
 
-            ${verseData.similarPairs ? `Similar Translations:\n${verseData.similarPairs.split('\n').slice(0, 3).join('\n')}` : ''}
+            Use the following data to learn about the target language:
 
-            ${verseData.surroundingContext ? `Context:\n${verseData.surroundingContext.split('\n').slice(0, 5).join('\n')}` : ''}
+            ${verseData.similarPairs ? `Similar Translations:\n${verseData.similarPairs}\n\n` : ''}
 
-            ${verseData.otherResources ? `Additional Notes:\n${verseData.otherResources}` : ''}
+            ${verseData.surroundingContext ? `Translations of Surrounding Verses:\n${verseData.surroundingContext}\n\n` : ''}
 
-            Provide only the completed part of the translation.`
+            ${verseData.otherResources ? `Additional Resources:\n${verseData.otherResources}\n\n` : ''}
+
+            Provide the translated verse. Do not use quotation marks around your response.`
         }
     ];
 }
@@ -947,7 +951,7 @@ export {
     getCompletionConfig,
     getCompletionText,
     getVerseData,
-    completeVerse,
+    completeVerse, 
     buildVerseMessages,
     makeCompletionRequest,
     formatCompletionResponse,
