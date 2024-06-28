@@ -3,9 +3,7 @@ import { CustomWebviewProvider } from "./utils/customWebviewProvider";
 import {
   triggerInlineCompletion,
   provideInlineCompletionItems,
-  initializeSourceTextFile,
-  getCompletionConfig,
-  triggerChapterCompletion
+  getCompletionConfig
 } from "./utils/inlineCompletionProvider";
 
 let statusBarItem: vscode.StatusBarItem;
@@ -13,8 +11,6 @@ let statusBarItem: vscode.StatusBarItem;
 export async function activate(context: vscode.ExtensionContext) {
   try {
       vscode.window.showInformationMessage("Translators Copilot is now active!");
-
-      await initializeSourceTextFile();
 
       statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
       context.subscriptions.push(statusBarItem);
@@ -31,11 +27,7 @@ export async function activate(context: vscode.ExtensionContext) {
           "extension.triggerInlineCompletion",
           async () => {
               const config = await getCompletionConfig();
-              if (config.completionMode === 'chapter') {
-                  await triggerChapterCompletion(statusBarItem);
-              } else {
-                  await triggerInlineCompletion(statusBarItem);
-              }
+              await triggerInlineCompletion(statusBarItem);
           }
       );
 

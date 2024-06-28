@@ -1,44 +1,48 @@
-# MINI AI PILOT: A Minimalist AI Programming Assistant
+# Translator's Copilot
 
-[中文文档](./README_CN.md)
+Translator's Copilot is a Codex extension designed to assist with Bible translation tasks. It provides AI-powered inline completions and contextual information to aid translators in their work.
 
-## Example
-![Demonstration Gif](./demo.gif)
+## Features
 
-## Features 🔥
-- Compatible with OpenAI API
-- Works with Local LLM
-- Provides code completion with manual trigger
-- Includes chat functionality
-- Offers question and answer support for selected code
-- Compatible with Windows systems
+- AI-assisted inline completions for Bible verses
+- Integration with project-specific resources and parallel passages
+- Side panel for additional information and interactions
+- Customizable completion modes (only verse completion is currently implemented)
+  
 
-## Installation ⬇️ 
-- Search for "Mini AI Pilot" in the Visual Studio Code extension market and click to install.
-- Option 1: Deploy a local LLM server compatible with OpenAI's API.
-  - You can choose to set up your own LLM server, as long as it is compatible with the OpenAI interface.
-  - It is recommended to use [text-generation-webui](https://github.com/oobabooga/text-generation-webui) to deploy your own LLM, and [deepseek-coder-instruct](https://github.com/deepseek-ai/DeepSeek-Coder) for the model. If your computer has high configuration, you can use the 33B model; otherwise, it is recommended to use the 6.7B or 1.3B model.
-  - If you don't know how to deploy or face difficulties, you can download and use my configured and packaged [version](https://pan.baidu.com/s/16uU5ToqEHEaMtFJbF05EGg?pwd=1234), after unzipping, just double click on start_windows.bat to start the service. To adapt to more people's computers, the default is the 1.3B version.
-- Option 2: To use the OpenAI's API, you need to obtain an API key, and then you can simply configure it in the plugin settings.
+## Installation
 
-## Usage 🚀 
-- Code completion: Press the hotkey "Alt + Q" or select the "AutoComplete" option from the right-click menu. Then, press "Tab" to enter the code.
-- AI chat: This feature can be accessed from the sidebar menu. Additionally, you can select a code segment and question it.
+1. Open Visual Studio Code
+2. Go to the Extensions view (Ctrl+Shift+X)
+3. Search for "translators-copilot"
+4. Click Install
 
-## Common QAs
-#### Q: What is the character or token limit per query?
-A: The maximum length of a single input is 4000 characters in the chat mode. Characters exceeding 4000 will be automatically truncated in the code completion mode.
-#### Q: What system requirements does my computer need to meet to deploy a local LLM?
-A: In the author's tests, the 1.3B model can be used without any pressure with just 4G of VRAM. If your computer has lower specifications, you can modify the 36 after the n-gpu-layers in CMD_FLAGS.txt to 0, which will completely use the CPU for inference, but note that this will significantly reduce the speed.
-#### Q: Why does code completion seem slower than Q&A?
-A: Code completion is not streamed, it only returns results after all are generated. Moreover, the generation speed is related to your computer configuration. If your computer has lower specifications, it is recommended to wait a moment after pressing Alt+Q.
-#### Q: Does it support auto-triggering code completion after input or line break?
-A: This plugin is intentionally designed to only support active triggering of completion (Alt+Q or right-click), as automatic triggering can be very annoying at times.
-#### Q: What operating systems are supported?
-A: The one-click LLM deployment package uploaded by the author only supports Windows systems. If you need to use it on other systems, you can install and deploy it yourself according to the official documentation of [text-generation-webui](https://github.com/oobabooga/text-generation-webui).
+## Configuration
 
-## Suggestions and Feedback
-For any suggestions or feedback, you can contact me at wuwei_nero@163.com or leave a message in the issues.
+Configure the extension in your VS Code settings:
+
+- `translators-copilot.llmEndpoint`: API endpoint for completions (default: OpenAI)
+- `translators-copilot.api_key`: Your API key (required for OpenAI)
+- `translators-copilot.model`: Language model to use (e.g., "gpt-3.5-turbo")
+- `translators-copilot.max_tokens`: Maximum tokens for completions
+- `translators-copilot.temperature`: Randomness of completions (0.0 - 1.0)
+- `translators-copilot.sourceTextFile`: Source text file name
+- `translators-copilot.additionalResourcesDirectory`: Directory for additional resources
+- `translators-copilot.completionMode`: Completion mode (verse, chapter, token)
+
+## Usage
+
+1. Open a Codex translation project
+2. Place your cursor at the end of a verse you're working on
+3. Use the keyboard shortcut (Alt+Q) or command palette to trigger an inline completion
+4. Accept or modify the suggested completion as needed
+
+## Requirements
+
+- Visual Studio Code 1.85.0 or higher
+- An active internet connection for API access
+- Properly structured Codex project
 
 ## License
-This project is licensed under the MIT License.
+
+This project is licensed under the MIT License License - see the LICENSE file for details.

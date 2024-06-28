@@ -76,11 +76,6 @@
           "type": "number",
           "default": 5,
           "description": "Number of verses to include in the surrounding context (before and after the current verse)."
-        },
-        "translators-copilot.chapterCompletionModel": {
-          "type": "string",
-          "default": "",
-          "description": "Model to use for chapter-level completions. If empty, the default model will be used."
         }
       }
     },

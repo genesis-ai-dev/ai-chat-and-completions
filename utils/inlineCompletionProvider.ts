@@ -1,11 +1,13 @@
 import * as vscode from "vscode";
-import axios from "axios";
-import * as fs from 'fs';
-import * as path from 'path';
-import { PythonMessenger } from "./pyglsMessenger";
-import NodeCache from 'node-cache';
+import { verseCompletion } from "./verseCompletion";
 
-interface CompletionConfig {
+let shouldProvideCompletion = false;
+let isAutocompletingInProgress = false;
+let autocompleteCancellationTokenSource: vscode.CancellationTokenSource | undefined;
+
+let cachedConfig: CompletionConfig;
+
+export interface CompletionConfig {
     endpoint: string;
     apiKey: string;
     model: string;
@@ -13,44 +15,21 @@ interface CompletionConfig {
     maxTokens: number;
     completionMode: string;
     similarPairsCount: number;
-    chapterCompletionModel: string;
+    surroundingVerseCount: number;
+    sourceTextFile: string;
+    additionalResourceDirectory: string;
 }
 
-interface VerseData {
-    sourceLanguageName: string;
-    verseRef: string;
-    sourceVerse: string;
-    currentVerse: string;
-    contextVerses: string;
-    similarPairs: string;
-    otherResources: string;
-    sourceChapter: string;
-    currentTranslation: string;
-    surroundingContext: string;
-}
-
-interface ChapterData {
-    chapterRef: string;
-    sourceChapterText: string;
-    currentChapterText: string;
-    similarTranslations: string;
-    additionalResources: string;
-}
-
-const pyMessenger = new PythonMessenger();
-const similarPairsCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
-let sourceTextFilePath: string | null = null
-let shouldProvideCompletion = false;
-let isAutocompletingInProgress = false;
-let config = vscode.workspace.getConfiguration("translators-copilot");
-let autocompleteCancellationTokenSource: vscode.CancellationTokenSource | undefined;
-
-vscode.workspace.onDidChangeConfiguration(event => {
-    if (event.affectsConfiguration("translators-copilot")) {
-        config = vscode.workspace.getConfiguration("translators-copilot");
-        console.log("Configuration updated successfully");
+// Initialize the config listener
+vscode.workspace.onDidChangeConfiguration(e => {
+    if (e.affectsConfiguration('translators-copilot')) {
+        refreshCompletionConfig();
     }
 });
+
+export async function refreshCompletionConfig(): Promise<void> {
+    cachedConfig = await fetchCompletionConfig();
+}
 
 export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarItem) {
     if (isAutocompletingInProgress) {
@@ -88,47 +67,6 @@ export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarIte
     }
 }
 
-export async function triggerChapterCompletion(statusBarItem: vscode.StatusBarItem) {
-    try {
-        if (isAutocompletingInProgress) {
-            vscode.window.showInformationMessage("Autocomplete is already in progress.");
-            return;
-        }
-
-        isAutocompletingInProgress = true;
-        autocompleteCancellationTokenSource = new vscode.CancellationTokenSource();
-
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            vscode.window.showErrorMessage("No active text editor");
-            return;
-        }
-        
-        statusBarItem.text = "$(sync~spin) Completing chapter...";
-        statusBarItem.show();
-        
-        const completedChapter = await completeChapter(editor.document, editor.selection.active);
-        
-        const chapterRange = await getChapterRange(editor.document, editor.selection.active);
-        await editor.edit(editBuilder => {
-            editBuilder.replace(chapterRange, completedChapter);
-        });
-        
-        vscode.window.showInformationMessage("Chapter completion finished");
-    } catch (error) {
-        console.error("Error in chapter completion:", error);
-        vscode.window.showErrorMessage(`Chapter completion failed: ${error}`);
-    } finally {
-        isAutocompletingInProgress = false;
-        if (statusBarItem) {
-            statusBarItem.hide();
-        }
-        if (autocompleteCancellationTokenSource) {
-            autocompleteCancellationTokenSource.dispose();
-        }
-    }
-}
-
 export async function provideInlineCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
@@ -140,19 +78,22 @@ export async function provideInlineCompletionItems(
             return undefined;
         }
 
+        // Ensure we have the latest config
         const completionConfig = await getCompletionConfig();
 
-        await initializeSourceTextFile();
-        if (!sourceTextFilePath) {
-            vscode.window.showErrorMessage("Source text file not found. Inline completion cannot proceed.");
-            return undefined;
-        }
-
-        let text;
-        if (completionConfig.completionMode === 'chapter') {
-            text = await completeChapter(document, position);
-        } else {
-            text = await getCompletionTextGPT(document, position, token);
+        let text: string;
+        switch (completionConfig.completionMode) {
+            case "verse":
+                text = await verseCompletion(document, position, completionConfig, token);
+                break;
+            case "chapter":
+                // TODO: Implement chapter completion
+                throw new Error("Chapter completion not yet implemented");
+            case "token":
+                // TODO: Implement token completion
+                throw new Error("Token completion not yet implemented");
+            default:
+                throw new Error(`Unsupported completion mode: ${completionConfig.completionMode}`);
         }
 
         if (token.isCancellationRequested) {
@@ -181,7 +122,6 @@ export async function provideInlineCompletionItems(
     }
 }
 
-//setup
 function cancelAutocompletion(message: string) {
     if (autocompleteCancellationTokenSource) {
         autocompleteCancellationTokenSource.cancel();
@@ -198,8 +138,9 @@ function cancelAutocompletion(message: string) {
     }
 }
 
-async function getCompletionConfig(): Promise<CompletionConfig> {
+async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
+        const config = vscode.workspace.getConfiguration("translators-copilot");
         return {
             endpoint: config.get("llmEndpoint") || "",
             apiKey: config.get("api_key") || "",
@@ -208,7 +149,9 @@ async function getCompletionConfig(): Promise<CompletionConfig> {
             maxTokens: config.get("max_tokens") || 0,
             completionMode: config.get("completionMode") || "verse",
             similarPairsCount: config.get("similarPairsCount") || 5,
-            chapterCompletionModel: config.get("chapterCompletionModel") || "",
+            surroundingVerseCount: config.get("surroundingVerseCount") || 5,
+            sourceTextFile: config.get("sourceTextFile") || "",
+            additionalResourceDirectory: config.get("additionalResourcesDirectory") || ""
         };
     } catch (error) {
         console.error("Error getting completion configuration", error);
@@ -216,304 +159,29 @@ async function getCompletionConfig(): Promise<CompletionConfig> {
     }
 }
 
-async function initializeSourceTextFile(): Promise<void> {
-    try {
-        sourceTextFilePath = await findSourceText();
-        if (sourceTextFilePath) {
-            console.log(`Source text file initialized: ${sourceTextFilePath}`);
-        } else {
-            vscode.window.showErrorMessage("No source text Bible file found. Inline completion cannot proceed.");
-        }
-    } catch (error) {
-        console.error("Error initializing source text file", error);
-        vscode.window.showErrorMessage("Failed to initialize source text file. Please check your configuration and workspace.");
+export async function getCompletionConfig(forceRefresh = false): Promise<CompletionConfig> {
+    if (forceRefresh || !cachedConfig) {
+        await refreshCompletionConfig();
     }
+    return cachedConfig;
 }
 
-async function findSourceText(): Promise<string | null> {
-    const configuredFile = config.get("sourceTextFile") as string;
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showErrorMessage("No workspace folder found. Please open a folder and try again.");
-        return null;
-    }
-
-    const sourceTextBiblesPath = path.join(workspaceFolders[0].uri.fsPath, ".project", "sourceTextBibles");
-    const sourceTextBiblesUri = vscode.Uri.file(sourceTextBiblesPath);
-
-    try {
-        await vscode.workspace.fs.stat(sourceTextBiblesUri);
-    } catch (error) {
-        vscode.window.showErrorMessage("Source text Bibles directory does not exist. Please check your workspace structure.");
-        return null;
-    }
-
-    try {
-        const files = await vscode.workspace.fs.readDirectory(sourceTextBiblesUri);
-        const bibleFiles = files
-            .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.bible'))
-            .map(([name]) => name);
-
-        if (configuredFile) {
-            if (bibleFiles.includes(configuredFile)) {
-                return path.join(sourceTextBiblesPath, configuredFile);
-            } else {
-                vscode.window.showWarningMessage(`Configured source text file "${configuredFile}" not found. Defaulting to first available Bible file.`);
-            }
-        }
-
-        if (bibleFiles.length > 0) {
-            return path.join(sourceTextBiblesPath, bibleFiles[0]);
-        } else {
-            vscode.window.showErrorMessage("No .bible files found in the sourceTextBibles directory.");
-            return null;
-        }
-    } catch (error) {
-        console.error("Error reading sourceTextBibles directory", error);
-        vscode.window.showErrorMessage("Failed to read sourceTextBibles directory. Please check your workspace structure.");
-        return null;
-    }
-}
-
-//completion call
-async function getCompletionTextGPT(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-    token: vscode.CancellationToken
-): Promise<string> {
-    try {
-        if (sourceTextFilePath === null) {
-            throw new Error('Source text file not initialized.');
-        }
-
-        const config = await getCompletionConfig();
-        const verseData = await getVerseData(document, position);
-
-        if (token.isCancellationRequested) {
-            return "";
-        }
-    
-        switch (config.completionMode) {
-            case "verse":
-                return await completeVerse(config, verseData, token);
-            case "chapter":
-                console.log("Completing the chapter.");
-                return await completeChapter(document, position);
-            case "token":
-                console.log("Completing as much as the token limit permits.");
-                return "token completion logic not implemented yet.";
-            default:
-                console.error("Unknown completion mode", { mode: config.completionMode });
-                throw new Error(`Unknown completion mode: ${config.completionMode}`);
-        }
-    } catch (error) {
-        console.error("Error in getCompletionTextGPT", error);
-        vscode.window.showErrorMessage(`Error during completion: ${error instanceof Error ? error.message : String(error)}`);
-        return "";
-    }
-}
-
-//chapter
-async function completeChapter(document: vscode.TextDocument, position: vscode.Position): Promise<string> {
-    const config = await getCompletionConfig();
-    const chapterData = await getChapterData(document, position);
-    const messages = buildChapterMessages(chapterData);
-    const response = await makeCompletionRequest(config, messages, chapterData.currentChapterText);
-    return formatChapterResponse(response, chapterData.currentChapterText);
-}
-
-async function getChapterData(document: vscode.TextDocument, position: vscode.Position): Promise<ChapterData> {
-    const chapterRef = await extractChapterRef(document, position);
-    const sourceChapterText = await getSourceChapterText(chapterRef);
-    const currentChapterText = await extractCurrentChapterText(document, chapterRef);
-    const similarTranslations = await getSimilarTranslations(chapterRef);
-    const additionalResources = await getAdditionalResources(chapterRef);
-    
-    return {
-        chapterRef,
-        sourceChapterText,
-        currentChapterText,
-        similarTranslations,
-        additionalResources
-    };
-}
-
-function buildChapterMessages(chapterData: ChapterData): any[] {
-    return [
-        {
-            role: "system",
-            content: `You are an expert biblical translator. Translate the entire chapter from the source language to the target language. Preserve verse numbers and formatting. Maintain consistency with existing translations.`
-        },
-        {
-            role: "user",
-            content: `
-                Source Chapter:
-                ${chapterData.sourceChapterText}
-                
-                Current Translation (including untranslated verses):
-                ${chapterData.currentChapterText}
-                
-                Similar Translations:
-                ${chapterData.similarTranslations}
-                
-                Additional Resources:
-                ${chapterData.additionalResources}
-                
-                Please provide a full translation of the chapter, with each verse on a new line and full verse references at the beginning of each line. Maintain any existing translations where possible.
-            `
-        }
-    ];
-}
-
-function formatChapterResponse(response: string, currentChapterText: string): string {
-    const responseLines = response.split('\n');
-    const currentLines = currentChapterText.split('\n');
-    
-    const mergedLines = responseLines.map((responseLine, index) => {
-        const currentLine = currentLines[index];
-        if (currentLine && !currentLine.match(/^\w{3}\s\d+:\d+$/)) {
-            return currentLine;
-        }
-        return responseLine;
-    });
-    
-    return mergedLines.join('\n');
-}
-
-async function extractChapterRef(document: vscode.TextDocument, position: vscode.Position): Promise<string> {
-    const line = document.lineAt(position.line).text;
-    const match = line.match(/^(\w{3}\s\d+):/);
-    if (match) {
-        return match[1];
-    }
-    throw new Error("Unable to extract chapter reference");
-}
-
-async function getSourceChapterText(chapterRef: string): Promise<string> {
-    if (!sourceTextFilePath) {
-        throw new Error('Source text file not initialized.');
-    }
-    const content = await fs.promises.readFile(sourceTextFilePath, 'utf-8');
-    const lines = content.split('\n');
-    const chapterLines = lines.filter(line => line.startsWith(chapterRef));
-    return chapterLines.join('\n');
-}
-
-async function extractCurrentChapterText(document: vscode.TextDocument, chapterRef: string): Promise<string> {
-    const text = document.getText();
-    const lines = text.split('\n');
-    const chapterLines = lines.filter(line => line.startsWith(chapterRef));
-    return chapterLines.join('\n');
-}
-
-async function getSimilarTranslations(chapterRef: string): Promise<string> {
-    // Implement this function to get similar translations for the chapter
-    // You can use the existing getSimilarPairs function as a starting point
-    return "Similar translations not implemented for chapter completion yet.";
-}
-
-//verse
-async function getVerseData(document: vscode.TextDocument, position: vscode.Position): Promise<VerseData> {
-    let verseData: Partial<VerseData> = {};
-    let missingResources: string[] = [];
-
-    try {
-        const metadata = await readMetadataJson();
-        verseData.sourceLanguageName = metadata.languages.find((lang: any) => lang.projectStatus === 'source')?.refName || "Unknown";
-        
-        verseData.verseRef = await findVerseRef() || "";
-        if (!verseData.verseRef) {
-            missingResources.push("verse reference");
-        }
-
-        if (!sourceTextFilePath) {
-            missingResources.push("source text file");
-            verseData.sourceVerse = "Source verse unavailable";
-        } else {
-            try {
-                verseData.sourceVerse = await findSourceVerse(sourceTextFilePath, verseData.verseRef);
-            } catch (error) {
-                console.warn(`Error finding source verse: ${error}`);
-                verseData.sourceVerse = "Source verse unavailable";
-                missingResources.push("source verse");
-            }
-        }
-    
-        const textBeforeCursor = preprocessDocument(document.getText(new vscode.Range(new vscode.Position(0, 0), position)));
-        verseData.currentVerse = extractCurrentVerse(textBeforeCursor, verseData.verseRef);
-        verseData.contextVerses = extractContextVerses(textBeforeCursor, verseData.verseRef);
-        
-        try {
-            verseData.similarPairs = await getSimilarPairs(verseData.verseRef);
-        } catch (error) {
-            console.warn(`Error getting similar pairs: ${error}`);
-            verseData.similarPairs = "Similar pairs unavailable";
-            missingResources.push("similar pairs");
-        }
-
-        try {
-            verseData.otherResources = await getAdditionalResources(verseData.verseRef);
-        } catch (error) {
-            console.warn(`Error getting additional resources: ${error}`);
-            verseData.otherResources = "Additional resources unavailable";
-            missingResources.push("additional resources");
-        }
-
-        try {
-            verseData.sourceChapter = await getSourceChapter(verseData.verseRef);
-        } catch (error) {
-            console.warn(`Error getting source chapter: ${error}`);
-            verseData.sourceChapter = "Source chapter unavailable";
-            missingResources.push("source chapter");
-        }
-
-        verseData.currentTranslation = await getCurrentTranslation(document, verseData.verseRef);
-        
-        try {
-            verseData.surroundingContext = await getSurroundingContext(verseData.verseRef);
-        } catch (error) {
-            console.warn(`Error getting surrounding context: ${error}`);
-            verseData.surroundingContext = "Surrounding context unavailable";
-            missingResources.push("surrounding context");
-        }
-    } catch (error) {
-        console.error("Error in getVerseData", error);
-    }
-
-    Object.keys(verseData).forEach(key => {
-        const keyTyped = key as keyof VerseData;
-        if (verseData[keyTyped] === undefined) {
-            console.warn(`${key} is undefined in verseData`);
-            verseData[keyTyped] = `${key} unavailable` as any;
-            missingResources.push(key);
-        }
-    });
-
-    if (missingResources.length > 0) {
-        vscode.window.showWarningMessage(`Some resources are unavailable: ${missingResources.join(", ")}. Completion may be less accurate.`);
-    }
-
-    console.log({ verseData });
-    return verseData as VerseData;
-}
-
-async function readMetadataJson(): Promise<any> {
+export async function readMetadataJson(): Promise<any> {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
             throw new Error('No workspace folder is open.');
         }
-        const metadataPath = path.join(workspaceFolders[0].uri.fsPath, 'metadata.json');
-        const data = await fs.promises.readFile(metadataPath, 'utf8');
-        return JSON.parse(data);
+        const metadataPath = vscode.Uri.joinPath(workspaceFolders[0].uri, 'metadata.json');
+        const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+        return JSON.parse(metadataContent.toString());
     } catch (error) {
         console.error("Error reading metadata.json", error);
         throw new Error(`Error reading metadata.json: ${error}`);
     }
 }
 
-async function findVerseRef(): Promise<string | undefined> {
+export async function findVerseRef(): Promise<string | undefined> {
     try {
         const sharedStateExtension = vscode.extensions.getExtension("project-accelerate.shared-state-store");
         if (sharedStateExtension) {
@@ -530,95 +198,9 @@ async function findVerseRef(): Promise<string | undefined> {
     }
 }
 
-async function findSourceVerse(sourceTextFilePath: string, verseRef: string): Promise<string> {
+export async function getAdditionalResources(verseRef: string): Promise<string> {
     try {
-        if (!sourceTextFilePath) {
-            throw new Error('Source file not specified.');
-        }
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders) {
-            throw new Error('No workspace folder is open.');
-        }
-        const fileUri = vscode.Uri.file(sourceTextFilePath);
-        const fileData = await vscode.workspace.fs.readFile(fileUri);
-        const fileContents = Buffer.from(fileData).toString('utf-8');
-        const verseRegex = new RegExp(`^${verseRef}.*$`, 'm');
-        const match = fileContents.match(verseRegex);
-        if (match) {
-            return match[0];
-        } else {
-            throw new Error(`Verse ${verseRef} not found in the source language Bible.`);
-        }
-    } catch (error) {
-        console.error("Error reading source language Bible", error);
-        throw new Error(`Error reading source language Bible: ${error}`);
-    }
-}
-
-function preprocessDocument(text: string): string {
-    try {
-        const lines = text.split("\r\n");
-        for (let i = 1; i < lines.length; i++) {
-            if (lines[i - 1].trim() !== "" && isStartWithComment(lines[i])) {
-                lines[i] = "\r\n" + lines[i];
-            }
-        }
-        return lines.join("\r\n");
-    } catch (error) {
-        console.error("Error preprocessing document", error);
-        throw error;
-    }
-
-    function isStartWithComment(line: string): boolean {
-        const trimLine = line.trim();
-        const commentStartSymbols = ["//", "#", "/*", "<!--", "{/*"];
-        return commentStartSymbols.some(symbol => trimLine.startsWith(symbol));
-    }
-}
-
-function extractCurrentVerse(text: string, verseRef: string): string {
-    if (!verseRef) return "";
-    const verseRefPosition = text.indexOf(verseRef);
-    if (verseRefPosition !== -1) {
-        return verseRef + text.substring(verseRefPosition + verseRef.length);
-    }
-    return "";
-}
-
-function extractContextVerses(text: string, verseRef: string): string {
-    if (!verseRef) return "";
-    let contextVerses = text.substring(0, text.indexOf(verseRef));
-    const bookCode = verseRef.substring(0, 3);
-    const regexPattern = new RegExp(`(${bookCode} \\d+:\\d+\\s*)+$`, "g");
-    return contextVerses.replace(regexPattern, '');
-}
-
-async function getSimilarPairs(verseRef: string): Promise<string> {
-    try {
-        const config = await getCompletionConfig();
-        const cacheKey = `${verseRef}-${config.similarPairsCount}`;
-        const cachedResult = similarPairsCache.get<string>(cacheKey);
-        
-        if (cachedResult) {
-            return cachedResult;
-        }
-
-        const result = await pyMessenger.getSimilarDrafts(verseRef, config.similarPairsCount);
-        if (!result || result.trim() === "") {
-            throw new Error("Empty result from getSimilarDrafts");
-        }
-        similarPairsCache.set(cacheKey, result);
-        return result;
-    } catch (error) {
-        console.error("Error getting similar pairs", error);
-        return "Error: Unable to retrieve similar verse pairs.";
-    }
-}
-
-async function getAdditionalResources(verseRef: string): Promise<string> {
-    try {
-        const config = vscode.workspace.getConfiguration("translators-copilot");
-        const resourceDir = config.get("additionalResourcesDirectory") as string;
+        const resourceDir = (await getCompletionConfig()).additionalResourceDirectory;
         if (!resourceDir) {
             console.log("Additional resources directory not specified");
             return "";
@@ -629,14 +211,13 @@ async function getAdditionalResources(verseRef: string): Promise<string> {
             throw new Error("No workspace folders found");
         }
 
-        const fullResourcePath = path.join(workspaceFolders[0].uri.fsPath, resourceDir);
-        const dirUri = vscode.Uri.file(fullResourcePath);
+        const fullResourcePath = vscode.Uri.joinPath(workspaceFolders[0].uri, resourceDir);
 
         let relevantContent = "";
         let files: [string, vscode.FileType][];
 
         try {
-            files = await vscode.workspace.fs.readDirectory(dirUri);
+            files = await vscode.workspace.fs.readDirectory(fullResourcePath);
         } catch (error) {
             if (error instanceof vscode.FileSystemError) {
                 if (error.code === 'FileNotFound') {
@@ -650,7 +231,7 @@ async function getAdditionalResources(verseRef: string): Promise<string> {
 
         for (const [fileName, fileType] of files) {
             if (fileType === vscode.FileType.File) {
-                const fileUri = vscode.Uri.joinPath(dirUri, fileName);
+                const fileUri = vscode.Uri.joinPath(fullResourcePath, fileName);
                 let fileContent: Uint8Array;
                 try {
                     fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -680,380 +261,47 @@ async function getAdditionalResources(verseRef: string): Promise<string> {
     }
 }
 
-async function getSourceChapter(verseRef: string): Promise<string> {
-    try {
-        if (sourceTextFilePath === null) {
-            throw new Error('Source text file not initialized.');
-        }
-
-        const [book, chapterVerse] = verseRef.split(' ');
-        const chapter = chapterVerse.split(':')[0];
-
-        const fileUri = vscode.Uri.file(sourceTextFilePath);
-        const sourceContent = await vscode.workspace.fs.readFile(fileUri);
-        const text = new TextDecoder().decode(sourceContent);
-
-        const chapterStart = text.indexOf(`${book} ${chapter}:1`);
-        if (chapterStart === -1) {
-            throw new Error(`Chapter start not found for ${book} ${chapter}`);
-        }
-
-        const nextChapterStart = text.indexOf(`${book} ${parseInt(chapter) + 1}:1`);
-
-        return text.substring(chapterStart, nextChapterStart !== -1 ? nextChapterStart : undefined);
-    } catch (error) {
-        console.error(`Error getting source chapter for ${verseRef}`, error);
-        if (error instanceof vscode.FileSystemError) {
-            throw new Error(`Failed to read source text file: ${error.message}`);
-        }
-        throw error;
-    }
-}
-
-async function getCurrentTranslation(document: vscode.TextDocument, verseRef: string): Promise<string> {
-    try {
-        const [book, chapterVerse] = verseRef.split(' ');
-        const chapter = chapterVerse.split(':')[0];
-        const text = document.getText();
-        const chapterStart = text.indexOf(`${book} ${chapter}:1`);
-        if (chapterStart === -1) {
-            throw new Error(`Chapter start not found for ${book} ${chapter}`);
-        }
-        const nextChapterStart = text.indexOf(`${book} ${parseInt(chapter) + 1}:1`);
-        return text.substring(chapterStart, nextChapterStart !== -1 ? nextChapterStart : undefined);
-    } catch (error) {
-        console.error(`Error getting current translation for ${verseRef}`, error);
-        throw error;
-    }
-}
-
-async function getSurroundingContext(verseRef: string): Promise<string> {
-    try {
-        if (sourceTextFilePath === null) {
-            throw new Error('Source text file not initialized.');
-        }
-
-        const config = vscode.workspace.getConfiguration("translators-copilot");
-        const n = config.get<number>("surroundingVerseCount") || 5;
-
-        const [book, chapterVerse] = verseRef.split(' ');
-        const [chapter, verse] = chapterVerse.split(':').map(Number);
-
-        let versePairs: { source: string, target: string | null }[] = [];
-        let verseRefs = await getVerseRefs(book, chapter, verse, n);
-
-        for (let ref of verseRefs) {
-            try {
-                const sourceVerse = await findSourceVerseForContext(sourceTextFilePath, ref);
-                const targetVerse = await findTargetVerse(ref);
-
-                if (sourceVerse) {
-                    versePairs.push({
-                        source: sourceVerse,
-                        target: targetVerse || null
-                    });
-                }
-            } catch (error) {
-                console.warn(`Error processing verse ${ref}: ${error}`);
-            }
-        }
-
-        return JSON.stringify({ verse_pairs: versePairs }, null, 2);
-    } catch (error) {
-        console.error(`Error getting surrounding context for ${verseRef}`, error);
-        throw error;
-    }
-}
-
-async function getVerseRefs(book: string, chapter: number, verse: number, n: number): Promise<string[]> {
-    let refs = [];
-    let currentBook = book;
-    let currentChapter = chapter;
-    let currentVerse = verse;
-
-    for (let i = 0; i < n; i++) {
-        currentVerse--;
-        if (currentVerse < 1) {
-            currentChapter--;
-            if (currentChapter < 1) {
-                break;
-            }
-            currentVerse = await getLastVerse(currentBook, currentChapter);
-        }
-        refs.unshift(`${currentBook} ${currentChapter}:${currentVerse}`);
-    }
-
-    currentBook = book;
-    currentChapter = chapter;
-    currentVerse = verse;
-    refs.push(`${currentBook} ${currentChapter}:${currentVerse}`);
-
-    for (let i = 0; i < Math.floor(n/2); i++) {
-        currentVerse++;
-        let lastVerse = await getLastVerse(currentBook, currentChapter);
-        if (currentVerse > lastVerse) {
-            currentChapter++;
-            let lastChapter = await getLastChapter(currentBook);
-            if (currentChapter > lastChapter) {
-                break;
-            }
-            currentVerse = 1;
-        }
-        refs.push(`${currentBook} ${currentChapter}:${currentVerse}`);
-    }
-
-    console.log({ refs });
-    return refs;
-}
-
-async function findTargetVerse(verseRef: string): Promise<string | null> {
+export async function findSourceText(): Promise<string | null> {
+    const configuredFile = (await getCompletionConfig()).sourceTextFile;
     const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) {
-        throw new Error('No workspace folder is open.');
+
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showErrorMessage("No workspace folder found. Please open a folder and try again.");
+        return null;
     }
 
-    const [book, chapterVerse] = verseRef.split(' ');
-    const [chapter] = chapterVerse.split(':');
-
-    const targetDir = path.join(workspaceFolders[0].uri.fsPath, 'files', 'target');
-    const codexFile = path.join(targetDir, `${book}.codex`);
+    const sourceTextBiblesPath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "sourceTextBibles");
 
     try {
-        const content = await fs.promises.readFile(codexFile, 'utf-8');
-        const notebook = JSON.parse(content);
+        await vscode.workspace.fs.stat(sourceTextBiblesPath);
+    } catch (error) {
+        vscode.window.showErrorMessage("Source text Bibles directory does not exist. Please check your workspace structure.");
+        return null;
+    }
 
-        const chapterCell = notebook.cells.find((cell: any) => 
-            cell.kind === 2 && 
-            cell.language === 'scripture' && 
-            cell.value.includes(`${book} ${chapter}:`)
-        );
+    try {
+        const files = await vscode.workspace.fs.readDirectory(sourceTextBiblesPath);
+        const bibleFiles = files
+            .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.bible'))
+            .map(([name]) => name);
 
-        if (!chapterCell) {
-            console.warn(`Chapter ${chapter} not found in ${book}.codex`);
+        if (configuredFile) {
+            if (bibleFiles.includes(configuredFile)) {
+                return vscode.Uri.joinPath(sourceTextBiblesPath, configuredFile).fsPath;
+            } else {
+                vscode.window.showWarningMessage(`Configured source text file "${configuredFile}" not found. Defaulting to first available Bible file.`);
+            }
+        }
+
+        if (bibleFiles.length > 0) {
+            return vscode.Uri.joinPath(sourceTextBiblesPath, bibleFiles[0]).fsPath;
+        } else {
+            vscode.window.showErrorMessage("No .bible files found in the sourceTextBibles directory.");
             return null;
         }
-
-        const lines = chapterCell.value.split('\r\n');
-        const targetLine = lines.find((line: any) => line.startsWith(verseRef));
-
-        if (targetLine) {
-            return targetLine.trim();
-        }
-
-        console.warn(`Verse ${verseRef} not found in ${book}.codex`);
-        return null;
     } catch (error) {
-        console.error(`Error reading or parsing ${book}.codex:`, error);
+        console.error("Error reading sourceTextBibles directory", error);
+        vscode.window.showErrorMessage("Failed to read sourceTextBibles directory. Please check your workspace structure.");
         return null;
     }
 }
-
-async function getLastChapter(book: string): Promise<number> {
-    if (!sourceTextFilePath) {
-        throw new Error('Source text file path is not initialized.');
-    }
-    const content = await fs.promises.readFile(sourceTextFilePath, 'utf-8');
-    const lines = content.split('\n');
-    let lastChapter = 0;
-    for (const line of lines) {
-        if (line.startsWith(book)) {
-            const [, chapterVerse] = line.split(' ');
-            const [chapter] = chapterVerse.split(':');
-            lastChapter = Math.max(lastChapter, parseInt(chapter));
-        }
-    }
-    return lastChapter;
-}
-
-async function getLastVerse(book: string, chapter: number): Promise<number> {
-    if (!sourceTextFilePath) {
-        throw new Error('Source text file path is not initialized.');
-    }
-    const content = await fs.promises.readFile(sourceTextFilePath, 'utf-8');
-    const lines = content.split('\n');
-    let lastVerse = 0;
-    for (const line of lines) {
-        if (line.startsWith(`${book} ${chapter}:`)) {
-            const [, chapterVerse] = line.split(' ');
-            const [, verse] = chapterVerse.split(':');
-            lastVerse = Math.max(lastVerse, parseInt(verse));
-        }
-    }
-    return lastVerse;
-}
-
-async function findSourceVerseForContext(sourceTextFilePath: string, verseRef: string): Promise<string> {
-    const content = await fs.promises.readFile(sourceTextFilePath, 'utf-8');
-    const lines = content.split('\n');
-    for (const line of lines) {
-        if (line.startsWith(verseRef)) {
-            return line.trim();
-        }
-    }
-    throw new Error(`Verse ${verseRef} not found in the source text.`);
-}
-
-async function completeVerse(config: CompletionConfig, verseData: VerseData, token: vscode.CancellationToken): Promise<string> {
-    try {
-        const messages = buildVerseMessages(verseData);
-        const response = await makeCompletionRequest(config, messages, verseData.currentVerse);
-
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            throw new Error('No workspace folder is open.');
-        }
-
-        return response;
-    } catch (error) {
-        console.error("Error completing verse:", error);
-        throw new Error(`Failed to complete verse: ${error}`);
-    }
-}
-
-function buildVerseMessages(verseData: VerseData) {
-    return [
-        {
-            role: "system",
-            content: `# Biblical Translation Expert
-            
-            You are an expert biblical translator working on translating from ${verseData.sourceLanguageName} to the target language. Your task is to learn the target language and complete a partial translation of a verse.
-            
-            ## Guidelines
-            
-            1. Prioritize accuracy to the source text while maintaining natural expression in the target language.
-            2. Maintain consistency with previously translated portions and the overall style of the project.
-            3. Use provided similar translations and surrounding context for guidance, but don't simply copy them.
-            4. Only complete the missing part of the verse; do not modify already translated portions.
-            5. Do not add explanatory content or commentary.
-            6. If crucial information is missing, provide the best possible translation based on available context.
-            7. Preserve any formatting or verse numbering present in the partial translation.
-
-            Use the data provided by the user to understand how the target language relates to ${verseData.sourceLanguageName}, then translate the 'Verse to Complete'.`
-        },
-        {
-            role: "user",
-            content: `# Translation Task
-            
-            ## Verse to Complete
-
-            Reference: ${verseData.verseRef}
-            Source: ${verseData.sourceVerse}
-            Partial Translation: ${verseData.currentVerse}
-            
-            ## Reference Data
-            
-            ${verseData.similarPairs ? `### Similar Translations
-            
-            ${verseData.similarPairs}
-            
-            ` : ''}
-            ${verseData.surroundingContext ? `### Translations of Surrounding Verses
-            
-            ${verseData.surroundingContext}
-            
-            ` : ''}
-            ${verseData.otherResources ? `### Additional Resources
-            
-            ${verseData.otherResources}
-            
-            ` : ''}
-            ## Instructions
-            
-            1. Analyze the provided reference data to understand the translation patterns and style.
-            2. Complete the partial translation of the verse.
-            3. Ensure your translation fits seamlessly with the existing partial translation.
-            4. Provide only the completed translation without any additional commentary or quotation marks.
-            
-            Completed translation:`
-        }
-    ];
-}
-
-async function makeCompletionRequest(config: CompletionConfig, messages: any, currentVerse: string): Promise<string> {
-    try {
-        const url = config.endpoint + "/chat/completions";
-        const data = {
-            max_tokens: config.maxTokens,
-            temperature: config.temperature,
-            model: config.model,
-            stream: false,
-            messages,
-            stop: ["\n\n", "\r\r", "\r\n\r", "\n\r\n"],
-        };
-        const headers = {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + config.apiKey,
-        };
-
-        const response = await axios.post(url, data, { headers });
-        if (response.data?.choices?.length > 0) {
-            const completedText = formatCompletionResponse(response.data.choices[0].message.content, currentVerse);
-            if (completedText.trim() === "") {
-                throw new Error("Empty completion response");
-            }
-            return completedText;
-        }
-        throw new Error("No choices in completion response");
-    } catch (error) {
-        console.error("Error making completion request", error);
-        if (axios.isAxiosError(error)) {
-            throw new Error(`API request failed: ${error.message}`);
-        }
-        if (error instanceof Error) {
-            throw new Error(`Completion request failed: ${error.message}`);
-        } else {
-            throw new Error("Completion request failed due to an unknown error");
-        }
-    }
-}
-
-function formatCompletionResponse(text: string, currentVerse: string): string {
-    let formattedText = text.startsWith("```") ? text.replace(/^```[\s\S]*?```/, '').trim() : text;
-  
-    if (text.startsWith(currentVerse) || text.startsWith(`"${currentVerse}`)) {
-        formattedText = text.startsWith(`"`) 
-            ? text.substring(currentVerse.length + 1, text.length - 1)
-            : text.substring(currentVerse.length);
-    }
-
-    return formattedText;
-}
-
-async function getChapterRange(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Range> {
-    const chapterRef = await extractChapterRef(document, position);
-    let startLine = 0;
-    let endLine = document.lineCount - 1;
-
-    for (let i = 0; i < document.lineCount; i++) {
-        if (document.lineAt(i).text.startsWith(chapterRef)) {
-            startLine = i;
-            break;
-        }
-    }
-
-    for (let i = startLine + 1; i < document.lineCount; i++) {
-        if (!document.lineAt(i).text.startsWith(chapterRef)) {
-            endLine = i - 1;
-            break;
-        }
-    }
-
-    return new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length);
-}
-
-export {
-    initializeSourceTextFile,
-    getCompletionConfig,
-    getVerseData,
-    completeVerse, 
-    buildVerseMessages,
-    makeCompletionRequest,
-    formatCompletionResponse,
-    readMetadataJson,
-    findVerseRef,
-    findSourceVerse,
-    preprocessDocument,
-    extractCurrentVerse,
-    extractContextVerses,
-    getSimilarPairs
-};
