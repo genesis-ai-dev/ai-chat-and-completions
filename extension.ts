@@ -1,46 +1,60 @@
-// In extension.ts
-
 import * as vscode from "vscode";
 import { CustomWebviewProvider } from "./utils/customWebviewProvider";
 import {
   triggerInlineCompletion,
   provideInlineCompletionItems,
-  initializeSourceTextFile
+  initializeSourceTextFile,
+  getCompletionConfig,
+  triggerChapterCompletion
 } from "./utils/inlineCompletionProvider";
+
+let statusBarItem: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext) {
   try {
-    vscode.window.showInformationMessage("Translators Copilot is now active!");
+      vscode.window.showInformationMessage("Translators Copilot is now active!");
 
-    await initializeSourceTextFile();
+      await initializeSourceTextFile();
 
-    const languages = ["scripture"]; 
-    let disposables = languages.map((language) => {
-      return vscode.languages.registerInlineCompletionItemProvider(language, {
-        provideInlineCompletionItems,
+      statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+      context.subscriptions.push(statusBarItem);
+
+      const languages = ["scripture"]; 
+      let disposables = languages.map((language) => {
+          return vscode.languages.registerInlineCompletionItemProvider(language, {
+              provideInlineCompletionItems,
+          });
       });
-    });
-    disposables.forEach((disposable) => context.subscriptions.push(disposable));
+      disposables.forEach((disposable) => context.subscriptions.push(disposable));
 
-    let commandDisposable = vscode.commands.registerCommand(
-      "extension.triggerInlineCompletion",
-      async () => {
-        await triggerInlineCompletion();
-      }
-    );
+      let commandDisposable = vscode.commands.registerCommand(
+          "extension.triggerInlineCompletion",
+          async () => {
+              const config = await getCompletionConfig();
+              if (config.completionMode === 'chapter') {
+                  await triggerChapterCompletion(statusBarItem);
+              } else {
+                  await triggerInlineCompletion(statusBarItem);
+              }
+          }
+      );
 
-    context.subscriptions.push(commandDisposable);
+      context.subscriptions.push(commandDisposable);
 
-    context.subscriptions.push(
-      vscode.window.registerWebviewViewProvider(
-        "sideView",
-        new CustomWebviewProvider(context.extensionUri)
-      )
-    );
+      context.subscriptions.push(
+          vscode.window.registerWebviewViewProvider(
+              "sideView",
+              new CustomWebviewProvider(context.extensionUri)
+          )
+      );
   } catch (error) {
-    console.error("Error activating extension", error);
-    vscode.window.showErrorMessage("Failed to activate Translators Copilot. Please check the logs for details.");
+      console.error("Error activating extension", error);
+      vscode.window.showErrorMessage("Failed to activate Translators Copilot. Please check the logs for details.");
   }
 }
 
-export function deactivate() {}
+export function deactivate() {
+  if (statusBarItem) {
+    statusBarItem.dispose();
+  }
+}
