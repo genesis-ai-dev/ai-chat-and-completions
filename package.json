@@ -76,6 +76,11 @@
           "type": "number",
           "default": 5,
           "description": "Number of verses to include in the surrounding context (before and after the current verse)."
+        },
+        "translators-copilot.enableBackgroundProcessing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable background processing for faster autocompletion"
         }
       }
     },

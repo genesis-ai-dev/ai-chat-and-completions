@@ -4,6 +4,7 @@ import NodeCache from 'node-cache';
 import * as fs from "fs";
 import * as path from "path";
 import { PythonMessenger } from "./pyglsMessenger";
+import { backgroundProcessor } from './backgroundProcessor';
 import { CompletionConfig, readMetadataJson, findVerseRef, getAdditionalResources, findSourceText} from "./inlineCompletionProvider";
 
 const pyMessenger = new PythonMessenger();
@@ -36,6 +37,25 @@ export async function verseCompletion(
 }
 
 async function getVerseData(config: CompletionConfig, document: vscode.TextDocument, position: vscode.Position): Promise<VerseData> {
+    const verseRef = await findVerseRef();
+
+    console.log({ verseRef });
+    if (verseRef) {
+        try {
+            const cachedData = backgroundProcessor.getCachedVerseData(verseRef);
+            console.log({ cachedData });
+            if (cachedData) {
+                console.log("got cached data from background.");
+                return cachedData;
+            }
+        } catch (error) {
+            console.warn(`Error getting cached verse data: ${error}`);
+            // Continue with non-cached data retrieval
+        }
+    }
+    
+    console.log("getting verse data.");
+
     let verseData: Partial<VerseData> = {};
     let missingResources: string[] = [];
 
@@ -122,8 +142,6 @@ async function getVerseData(config: CompletionConfig, document: vscode.TextDocum
     return verseData as VerseData;
 }
 
-
-
 async function findSourceVerse(sourceTextFilePath: string, verseRef: string): Promise<string> {
     try {
         if (!sourceTextFilePath) {
@@ -176,10 +194,15 @@ async function getSimilarPairs(verseRef: string, similarPairsCount: number): Pro
         const cachedResult = similarPairsCache.get<string>(cacheKey);
         
         if (cachedResult) {
+            console.log("returned cached result");
             return cachedResult;
         }
 
-        const result = await pyMessenger.getSimilarDrafts(verseRef, similarPairsCount);
+        const result = await Promise.race([
+            pyMessenger.getSimilarDrafts(verseRef, similarPairsCount),
+            new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Request timed out")), 15000))
+        ]);
+
         if (!result || result.trim() === "") {
             throw new Error("Empty result from getSimilarDrafts");
         }
@@ -187,7 +210,7 @@ async function getSimilarPairs(verseRef: string, similarPairsCount: number): Pro
         return result;
     } catch (error) {
         console.error("Error getting similar pairs", error);
-        return "Error: Unable to retrieve similar verse pairs.";
+        return "";
     }
 }
 
@@ -559,6 +582,7 @@ function formatCompletionResponse(text: string, currentVerse: string): string {
 }
 
 export {
+    VerseData,
     getVerseData,
     completeVerse, 
     buildVerseMessages,

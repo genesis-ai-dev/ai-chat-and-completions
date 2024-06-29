@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { verseCompletion } from "./verseCompletion";
+import { backgroundProcessor } from './backgroundProcessor';
 
 let shouldProvideCompletion = false;
 let isAutocompletingInProgress = false;
@@ -18,17 +19,20 @@ export interface CompletionConfig {
     surroundingVerseCount: number;
     sourceTextFile: string;
     additionalResourceDirectory: string;
+    enableBackgroundProcessing: boolean;
 }
 
 // Initialize the config listener
 vscode.workspace.onDidChangeConfiguration(e => {
     if (e.affectsConfiguration('translators-copilot')) {
         refreshCompletionConfig();
+        backgroundProcessor.initialize(); 
     }
 });
 
 export async function refreshCompletionConfig(): Promise<void> {
     cachedConfig = await fetchCompletionConfig();
+
 }
 
 export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarItem) {
@@ -151,7 +155,8 @@ async function fetchCompletionConfig(): Promise<CompletionConfig> {
             similarPairsCount: config.get("similarPairsCount") || 5,
             surroundingVerseCount: config.get("surroundingVerseCount") || 5,
             sourceTextFile: config.get("sourceTextFile") || "",
-            additionalResourceDirectory: config.get("additionalResourcesDirectory") || ""
+            additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
+            enableBackgroundProcessing: config.get("enableBackgroundProcessing") || false
         };
     } catch (error) {
         console.error("Error getting completion configuration", error);
