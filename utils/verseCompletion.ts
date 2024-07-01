@@ -1,25 +1,20 @@
 import * as vscode from "vscode";
 import axios from "axios";
-import NodeCache from 'node-cache';
 import * as fs from "fs";
 import * as path from "path";
 import { PythonMessenger } from "./pyglsMessenger";
-import { backgroundProcessor } from './backgroundProcessor';
-import { CompletionConfig, readMetadataJson, findVerseRef, getAdditionalResources, findSourceText} from "./inlineCompletionProvider";
+import { MAX_TOKENS, TEMPERATURE, CompletionConfig, readMetadataJson, findVerseRef, getAdditionalResources, findSourceText} from "./inlineCompletionProvider";
 
 const pyMessenger = new PythonMessenger();
-const similarPairsCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
 
 interface VerseData {
     sourceLanguageName: string;
     verseRef: string;
     sourceVerse: string;
     currentVerse: string;
-    contextVerses: string;
     similarPairs: string;
     otherResources: string;
     sourceChapter: string;
-    currentTranslation: string;
     surroundingContext: string;
 }
 
@@ -33,26 +28,13 @@ export async function verseCompletion(
     if (token.isCancellationRequested) {
         return "";
     }
-    return await completeVerse(config, verseData, token);
+    return await completeVerse(config, verseData);
 }
 
 async function getVerseData(config: CompletionConfig, document: vscode.TextDocument, position: vscode.Position): Promise<VerseData> {
     const verseRef = await findVerseRef();
 
     console.log({ verseRef });
-    if (verseRef) {
-        try {
-            const cachedData = backgroundProcessor.getCachedVerseData(verseRef);
-            console.log({ cachedData });
-            if (cachedData) {
-                console.log("got cached data from background.");
-                return cachedData;
-            }
-        } catch (error) {
-            console.warn(`Error getting cached verse data: ${error}`);
-            // Continue with non-cached data retrieval
-        }
-    }
     
     console.log("getting verse data.");
 
@@ -84,10 +66,9 @@ async function getVerseData(config: CompletionConfig, document: vscode.TextDocum
     
         const textBeforeCursor = preprocessDocument(document.getText(new vscode.Range(new vscode.Position(0, 0), position)));
         verseData.currentVerse = extractCurrentVerse(textBeforeCursor, verseData.verseRef);
-        verseData.contextVerses = extractContextVerses(textBeforeCursor, verseData.verseRef);
 
         try {
-            verseData.similarPairs = await getSimilarPairs(verseData.verseRef, config.similarPairsCount);
+            verseData.similarPairs = await getSimilarPairs(verseData.verseRef, config.contextSize);
         } catch (error) {
             console.warn(`Error getting similar pairs: ${error}`);
             verseData.similarPairs = "Similar pairs unavailable";
@@ -110,12 +91,10 @@ async function getVerseData(config: CompletionConfig, document: vscode.TextDocum
             verseData.sourceChapter = "Source chapter unavailable";
             missingResources.push("source chapter");
         }
-
-        verseData.currentTranslation = await getCurrentTranslation(document, verseData.verseRef);
         
         try {
             if (sourceTextFilePath !== null) 
-                verseData.surroundingContext = await getSurroundingContext(sourceTextFilePath, verseData.verseRef, config.surroundingVerseCount);
+                verseData.surroundingContext = await getSurroundingContext(sourceTextFilePath, verseData.verseRef, config.contextSize);
         } catch (error) {
             console.warn(`Error getting surrounding context: ${error}`);
             verseData.surroundingContext = "Surrounding context unavailable";
@@ -180,41 +159,40 @@ function extractCurrentVerse(text: string, verseRef: string): string {
     return "";
 }
 
-function extractContextVerses(text: string, verseRef: string): string {
-    if (!verseRef) return "";
-    let contextVerses = text.substring(0, text.indexOf(verseRef));
-    const bookCode = verseRef.substring(0, 3);
-    const regexPattern = new RegExp(`(${bookCode} \\d+:\\d+\\s*)+$`, "g");
-    return contextVerses.replace(regexPattern, '');
-}
+async function getSimilarPairs(verseRef: string, contextSize: string): Promise<string> {
+    
+    let similarPairsCount;
+    switch (contextSize) {
+        case "small":
+            similarPairsCount = 5;
+            break;
+        case "medium":
+            similarPairsCount = 7;
+            break;
+        case "large":
+            similarPairsCount = 10;
+            break;
+        default:
+            console.warn(`Unknown context size: ${contextSize}. Defaulting to medium.`);
+            similarPairsCount = 7;
+    }
 
-async function getSimilarPairs(verseRef: string, similarPairsCount: number): Promise<string> {
     try {
-        const cacheKey = `${verseRef}-${similarPairsCount}`;
-        const cachedResult = similarPairsCache.get<string>(cacheKey);
-        
-        if (cachedResult) {
-            console.log("returned cached result");
-            return cachedResult;
-        }
-
-        const result = await Promise.race([
+        let result = await Promise.race([
             pyMessenger.getSimilarDrafts(verseRef, similarPairsCount),
-            new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Request timed out")), 15000))
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Request timed out")), 2000))
         ]);
-
-        if (!result || result.trim() === "") {
-            throw new Error("Empty result from getSimilarDrafts");
+        
+        if (Array.isArray(result)) {
+            return result.map(item => JSON.stringify(item, null, 2)).join('\n\n');
+        } else {
+            throw new Error("Unexpected result format from getSimilarDrafts");
         }
-        similarPairsCache.set(cacheKey, result);
-        return result;
     } catch (error) {
         console.error("Error getting similar pairs", error);
         return "";
     }
 }
-
-
 
 async function getSourceChapter(sourceTextFilePath: string, verseRef: string): Promise<string> {
     try {
@@ -246,24 +224,24 @@ async function getSourceChapter(sourceTextFilePath: string, verseRef: string): P
     }
 }
 
-async function getCurrentTranslation(document: vscode.TextDocument, verseRef: string): Promise<string> {
-    try {
-        const [book, chapterVerse] = verseRef.split(' ');
-        const chapter = chapterVerse.split(':')[0];
-        const text = document.getText();
-        const chapterStart = text.indexOf(`${book} ${chapter}:1`);
-        if (chapterStart === -1) {
-            throw new Error(`Chapter start not found for ${book} ${chapter}`);
-        }
-        const nextChapterStart = text.indexOf(`${book} ${parseInt(chapter) + 1}:1`);
-        return text.substring(chapterStart, nextChapterStart !== -1 ? nextChapterStart : undefined);
-    } catch (error) {
-        console.error(`Error getting current translation for ${verseRef}`, error);
-        throw error;
+async function getSurroundingContext(sourceTextFilePath: string,verseRef: string, contextSize: string): Promise<string> {
+    
+    let surroundingVerseCount;
+    switch (contextSize) {
+        case "small":
+            surroundingVerseCount = 3;
+            break;
+        case "medium":
+            surroundingVerseCount = 5;
+            break;
+        case "large":
+            surroundingVerseCount = 7;
+            break;
+        default:
+            console.warn(`Unknown context size: ${contextSize}. Defaulting to medium.`);
+            surroundingVerseCount = 5;
     }
-}
 
-async function getSurroundingContext(sourceTextFilePath: string,verseRef: string, surroundingVerseCount: number): Promise<string> {
     try {
         if (sourceTextFilePath === null) {
             throw new Error('Source text file not initialized.');
@@ -274,7 +252,7 @@ async function getSurroundingContext(sourceTextFilePath: string,verseRef: string
         const [book, chapterVerse] = verseRef.split(' ');
         const [chapter, verse] = chapterVerse.split(':').map(Number);
 
-        let versePairs: { source: string, target: string | null }[] = [];
+        let versePairs: { ref: string, source: string, target: string | null }[] = [];
         let verseRefs = await getVerseRefs(sourceTextFilePath, book, chapter, verse, n);
 
         for (let ref of verseRefs) {
@@ -287,8 +265,9 @@ async function getSurroundingContext(sourceTextFilePath: string,verseRef: string
 
                 if (sourceVerse && targetVerse) {
                     versePairs.push({
-                        source: sourceVerse,
-                        target: targetVerse
+                        ref: ref,
+                        source: sourceVerse.replace(ref, ''),
+                        target: targetVerse.replace(ref, '')
                     });
                 }
             } catch (error) {
@@ -439,7 +418,7 @@ async function findTargetVerse(verseRef: string): Promise<string | null> {
     }
 }
 
-async function completeVerse(config: CompletionConfig, verseData: VerseData, token: vscode.CancellationToken): Promise<string> {
+async function completeVerse(config: CompletionConfig, verseData: VerseData): Promise<string> {
     try {
         const messages = buildVerseMessages(verseData);
         const response = await makeCompletionRequest(config, messages, verseData.currentVerse);
@@ -505,7 +484,7 @@ Partial Translation: ${verseData.currentVerse}
             
 ## Reference Data
             
-${verseData.similarPairs && verseData.similarPairs !== "" ? `### Similar Translations
+${verseData.similarPairs && verseData.similarPairs !== "" ? `### Similar Pairs of Translations
             
 ${verseData.similarPairs}
             
@@ -535,8 +514,8 @@ async function makeCompletionRequest(config: CompletionConfig, messages: any, cu
     try {
         const url = config.endpoint + "/chat/completions";
         const data = {
-            max_tokens: config.maxTokens,
-            temperature: config.temperature,
+            max_tokens: MAX_TOKENS,
+            temperature: TEMPERATURE,
             model: config.model,
             stream: false,
             messages,

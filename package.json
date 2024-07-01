@@ -34,18 +34,8 @@
         },
         "translators-copilot.model": {
           "type": "string",
-          "default": "gpt-3.5-turbo",
+          "default": "gpt-4o",
           "description": "Model name selected for inference. Ignorable for local LLM."
-        },
-        "translators-copilot.max_tokens": {
-          "type": "number",
-          "default": 2048,
-          "description": "The maximum number of output tokens for the completion API."
-        },
-        "translators-copilot.temperature": {
-          "type": "number",
-          "default": 0.2,
-          "description": "The randomness level of output generation. A higher value leads to more random outputs."
         },
         "translators-copilot.sourceTextFile": {
           "type": "string",
@@ -57,31 +47,12 @@
           "default": "",
           "description": "The directory path containing additional resources for completion context. No recources if path is invalid."
         },
-        "translators-copilot.completionMode": {
-          "type": "string",
-          "enum": [
-            "verse",
-            "chapter",
-            "token"
-          ],
-          "enumDescriptions": [
-            "Complete up to the end of the current verse",
-            "Complete up to the end of the current chapter",
-            "Complete as much as the token limit permits"
-          ],
-          "default": "verse",
-          "description": "Determines how much text to generate in each completion."
-        },
-        "translators-copilot.surroundingVerseCount": {
-          "type": "number",
-          "default": 5,
-          "description": "Number of verses to include in the surrounding context (before and after the current verse)."
-        },
-        "translators-copilot.enableBackgroundProcessing": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable background processing for faster autocompletion"
-        }
+      "translators-copilot.contextSize": {
+        "type": "string",
+        "default": "medium",
+        "description": "The size of the context to be used for completion.",
+        "enum": ["small", "medium", "large"]
+      }
       }
     },
     "commands": [

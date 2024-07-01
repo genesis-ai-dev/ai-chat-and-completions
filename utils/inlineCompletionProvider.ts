@@ -1,39 +1,30 @@
 import * as vscode from "vscode";
 import { verseCompletion } from "./verseCompletion";
-import { backgroundProcessor } from './backgroundProcessor';
 
 let shouldProvideCompletion = false;
 let isAutocompletingInProgress = false;
 let autocompleteCancellationTokenSource: vscode.CancellationTokenSource | undefined;
 
-let cachedConfig: CompletionConfig;
+export const MAX_TOKENS = 4000;
+export const TEMPERATURE = 0.8;
+
+let currentConfig: CompletionConfig;
 
 export interface CompletionConfig {
     endpoint: string;
     apiKey: string;
     model: string;
-    temperature: number;
-    maxTokens: number;
-    completionMode: string;
-    similarPairsCount: number;
-    surroundingVerseCount: number;
+    contextSize: string,
     sourceTextFile: string;
     additionalResourceDirectory: string;
-    enableBackgroundProcessing: boolean;
 }
 
 // Initialize the config listener
-vscode.workspace.onDidChangeConfiguration(e => {
+vscode.workspace.onDidChangeConfiguration(async e => {
     if (e.affectsConfiguration('translators-copilot')) {
-        refreshCompletionConfig();
-        backgroundProcessor.initialize(); 
+        currentConfig = await fetchCompletionConfig();
     }
 });
-
-export async function refreshCompletionConfig(): Promise<void> {
-    cachedConfig = await fetchCompletionConfig();
-
-}
 
 export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarItem) {
     if (isAutocompletingInProgress) {
@@ -83,23 +74,12 @@ export async function provideInlineCompletionItems(
         }
 
         // Ensure we have the latest config
-        const completionConfig = await getCompletionConfig();
+        const completionConfig = await fetchCompletionConfig();
 
         let text: string;
-        switch (completionConfig.completionMode) {
-            case "verse":
-                text = await verseCompletion(document, position, completionConfig, token);
-                break;
-            case "chapter":
-                // TODO: Implement chapter completion
-                throw new Error("Chapter completion not yet implemented");
-            case "token":
-                // TODO: Implement token completion
-                throw new Error("Token completion not yet implemented");
-            default:
-                throw new Error(`Unsupported completion mode: ${completionConfig.completionMode}`);
-        }
+        text = await verseCompletion(document, position, completionConfig, token);
 
+         
         if (token.isCancellationRequested) {
             return undefined;
         }
@@ -142,33 +122,21 @@ function cancelAutocompletion(message: string) {
     }
 }
 
-async function fetchCompletionConfig(): Promise<CompletionConfig> {
+export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
         const config = vscode.workspace.getConfiguration("translators-copilot");
         return {
             endpoint: config.get("llmEndpoint") || "",
             apiKey: config.get("api_key") || "",
             model: config.get("model") || "",
-            temperature: config.get("temperature") || 0,
-            maxTokens: config.get("max_tokens") || 0,
-            completionMode: config.get("completionMode") || "verse",
-            similarPairsCount: config.get("similarPairsCount") || 5,
-            surroundingVerseCount: config.get("surroundingVerseCount") || 5,
             sourceTextFile: config.get("sourceTextFile") || "",
-            additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
-            enableBackgroundProcessing: config.get("enableBackgroundProcessing") || false
+            contextSize: config.get("contextSize") || "medium",
+            additionalResourceDirectory: config.get("additionalResourcesDirectory") || ""
         };
     } catch (error) {
         console.error("Error getting completion configuration", error);
         throw new Error("Failed to get completion configuration");
     }
-}
-
-export async function getCompletionConfig(forceRefresh = false): Promise<CompletionConfig> {
-    if (forceRefresh || !cachedConfig) {
-        await refreshCompletionConfig();
-    }
-    return cachedConfig;
 }
 
 export async function readMetadataJson(): Promise<any> {
@@ -205,7 +173,7 @@ export async function findVerseRef(): Promise<string | undefined> {
 
 export async function getAdditionalResources(verseRef: string): Promise<string> {
     try {
-        const resourceDir = (await getCompletionConfig()).additionalResourceDirectory;
+        const resourceDir = (await fetchCompletionConfig()).additionalResourceDirectory;
         if (!resourceDir) {
             console.log("Additional resources directory not specified");
             return "";
@@ -267,7 +235,7 @@ export async function getAdditionalResources(verseRef: string): Promise<string> 
 }
 
 export async function findSourceText(): Promise<string | null> {
-    const configuredFile = (await getCompletionConfig()).sourceTextFile;
+    const configuredFile = (await fetchCompletionConfig()).sourceTextFile;
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
     if (!workspaceFolders || workspaceFolders.length === 0) {

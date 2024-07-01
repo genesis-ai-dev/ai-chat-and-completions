@@ -1,10 +1,8 @@
 import * as vscode from "vscode";
 import { CustomWebviewProvider } from "./utils/customWebviewProvider";
-import { backgroundProcessor } from './utils/backgroundProcessor';
 import {
   triggerInlineCompletion,
-  provideInlineCompletionItems,
-  getCompletionConfig
+  provideInlineCompletionItems
 } from "./utils/inlineCompletionProvider";
 
 let statusBarItem: vscode.StatusBarItem;
@@ -15,8 +13,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
       statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
       context.subscriptions.push(statusBarItem);
-
-      await backgroundProcessor.initialize();
 
       const languages = ["scripture"]; 
       let disposables = languages.map((language) => {
@@ -29,7 +25,6 @@ export async function activate(context: vscode.ExtensionContext) {
       let commandDisposable = vscode.commands.registerCommand(
           "extension.triggerInlineCompletion",
           async () => {
-              const config = await getCompletionConfig();
               await triggerInlineCompletion(statusBarItem);
           }
       );
