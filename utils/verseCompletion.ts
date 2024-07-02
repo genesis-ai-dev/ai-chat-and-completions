@@ -429,19 +429,19 @@ async function completeVerse(config: CompletionConfig, verseData: VerseData): Pr
         
         ////////////////////////////////
         //for seeing the message sent to the API
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            throw new Error('No workspace folder is open.');
-        }
-        const messagesFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, 'messages.txt');
-        const messagesContent = messages.map(message => `${message.role}: ${message.content}`).join('\n\n');
+        // if (!workspaceFolders || workspaceFolders.length === 0) {
+        //     throw new Error('No workspace folder is open.');
+        // }
+        // const messagesFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, 'messages.txt');
+        // const messagesContent = messages.map(message => `${message.role}: ${message.content}`).join('\n\n');
 
-        try {
-            await vscode.workspace.fs.writeFile(messagesFilePath, new TextEncoder().encode(messagesContent));
-            console.log('Messages written to messages.txt');
-        } catch (error) {
-            console.error('Error writing messages to messages.txt:', error);
-            throw new Error('Failed to write messages to messages.txt');
-        }
+        // try {
+        //     await vscode.workspace.fs.writeFile(messagesFilePath, new TextEncoder().encode(messagesContent));
+        //     console.log('Messages written to messages.txt');
+        // } catch (error) {
+        //     console.error('Error writing messages to messages.txt:', error);
+        //     throw new Error('Failed to write messages to messages.txt');
+        // }
         ///////////////////////////////
 
         if (!workspaceFolders || workspaceFolders.length === 0) {
