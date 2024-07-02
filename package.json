@@ -52,6 +52,11 @@
         "default": "medium",
         "description": "The size of the context to be used for completion.",
         "enum": ["small", "medium", "large"]
+      },
+      "translators-copilot.experimentalContextOmmission": {
+        "type": "boolean",
+        "default": "false",
+        "description": "Experimental: when passing completion request to API, intensionally ommits any reference to scripture (e.g. verse references)."
       }
       }
     },

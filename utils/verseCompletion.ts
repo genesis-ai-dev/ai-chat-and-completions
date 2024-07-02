@@ -268,8 +268,8 @@ async function getSurroundingContext(sourceTextFilePath: string,verseRef: string
                 if (sourceVerse && targetVerse) {
                     versePairs.push({
                         ref: ref,
-                        source: sourceVerse.replace(ref, ''),
-                        target: targetVerse.replace(ref, '')
+                        source: sourceVerse.includes(ref + " ") ? sourceVerse.replace(ref + " ", '') : sourceVerse.replace(ref, ''),
+                        target: targetVerse.includes(ref + " ") ? targetVerse.replace(ref + " ", '') : targetVerse.replace(ref, ''),
                     });
                 }
             } catch (error) {
@@ -277,7 +277,7 @@ async function getSurroundingContext(sourceTextFilePath: string,verseRef: string
             }
         }
 
-        return JSON.stringify({ verse_pairs: versePairs }, null, 2);
+        return versePairs.map(pair => JSON.stringify(pair, null, 2)).join('\n\n');
     } catch (error) {
         console.error(`Error getting surrounding context for ${verseRef}`, error);
         throw error;
@@ -422,26 +422,26 @@ async function findTargetVerse(verseRef: string): Promise<string | null> {
 
 async function completeVerse(config: CompletionConfig, verseData: VerseData): Promise<string> {
     try {
-        const messages = buildVerseMessages(verseData);
+        const messages = config.contextOmmission? buildUnbiblicalVerseMessages(verseData) : buildVerseMessages(verseData);
         const response = await makeCompletionRequest(config, messages, verseData.currentVerse);
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         
         ////////////////////////////////
-        // //for seeing the message sent to the API
-        // if (!workspaceFolders || workspaceFolders.length === 0) {
-        //     throw new Error('No workspace folder is open.');
-        // }
-        // const messagesFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, 'messages.txt');
-        // const messagesContent = messages.map(message => `${message.role}: ${message.content}`).join('\n\n');
+        //for seeing the message sent to the API
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            throw new Error('No workspace folder is open.');
+        }
+        const messagesFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, 'messages.txt');
+        const messagesContent = messages.map(message => `${message.role}: ${message.content}`).join('\n\n');
 
-        // try {
-        //     await vscode.workspace.fs.writeFile(messagesFilePath, new TextEncoder().encode(messagesContent));
-        //     console.log('Messages written to messages.txt');
-        // } catch (error) {
-        //     console.error('Error writing messages to messages.txt:', error);
-        //     throw new Error('Failed to write messages to messages.txt');
-        // }
+        try {
+            await vscode.workspace.fs.writeFile(messagesFilePath, new TextEncoder().encode(messagesContent));
+            console.log('Messages written to messages.txt');
+        } catch (error) {
+            console.error('Error writing messages to messages.txt:', error);
+            throw new Error('Failed to write messages to messages.txt');
+        }
         ///////////////////////////////
 
         if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -487,14 +487,14 @@ Partial Translation: ${verseData.currentVerse}
             
 ## Reference Data
             
-${verseData.similarPairs && verseData.similarPairs !== "" ? `### Similar Pairs of Translations
+${verseData.similarPairs && verseData.similarPairs !== "" ? `### Similar Verse Translations
             
-${verseData.similarPairs}
+${reformatPairs(verseData.similarPairs)}
             
 ` : ''}
 ${verseData.surroundingContext && verseData.surroundingContext !== "" ? `### Translations of Surrounding Verses
             
-${verseData.surroundingContext}
+${reformatPairs(verseData.surroundingContext)}
             
 ` : ''}
 ${verseData.otherResources && verseData.otherResources !== "" ? `### Additional Resources
@@ -506,6 +506,63 @@ ${verseData.otherResources}
             
 1. Analyze the provided reference data to understand the translation patterns and style.
 2. Complete the partial translation of the verse.
+3. Ensure your translation fits seamlessly with the existing partial translation.
+4. Provide only the completed translation without any additional commentary or quotation marks.
+`
+        }
+    ];
+}
+
+function buildUnbiblicalVerseMessages(verseData: VerseData) {
+    return [
+        {
+            role: "system",
+            content: `# Translation Expert
+            
+You are an expert translator working on translating from ${verseData.sourceLanguageName} to the target language. Your task is to learn the target language and complete a partial translation of a verse.
+            
+## Guidelines
+            
+1. Prioritize accuracy to the source text while maintaining natural expression in the target language.
+2. Maintain consistency with previously translated portions and the overall style of the project.
+3. Use provided similar translations and surrounding context for guidance, but don't simply copy them.
+4. Only complete the missing part of the line; do not modify already translated portions.
+5. Do not add explanatory content or commentary.
+6. If crucial information is missing, provide the best possible translation based on available context.
+7. Preserve any formatting or text present in the partial translation.
+
+Use the data provided by the user to understand how the target language relates to ${verseData.sourceLanguageName}, then translate the 'Text to Complete'.`
+        },
+        {
+            role: "user",
+            content: `# Translation Task
+            
+## Text to Complete
+
+Source: ${verseData.sourceVerse.replace(verseData.verseRef, "")}
+Partial Translation: ${verseData.currentVerse.replace(verseData.verseRef, "")}
+            
+## Reference Data
+            
+${verseData.similarPairs && verseData.similarPairs !== "" ? `### Similar Translations
+            
+${reformatPairsForOmmission(verseData.similarPairs)}
+            
+` : ''}
+${verseData.surroundingContext && verseData.surroundingContext !== "" ? `### Translation of Surrounding Text
+            
+${reformatPairsForOmmission(verseData.surroundingContext)}
+            
+` : ''}
+${verseData.otherResources && verseData.otherResources !== "" ? `### Additional Resources
+            
+${verseData.otherResources}
+            
+` : ''}
+## Instructions
+            
+1. Analyze the provided reference data to understand the translation patterns and style.
+2. Complete the partial translation of the line.
 3. Ensure your translation fits seamlessly with the existing partial translation.
 4. Provide only the completed translation without any additional commentary or quotation marks.
 `
@@ -563,6 +620,25 @@ function formatCompletionResponse(text: string, currentVerse: string): string {
     return formattedText;
 }
 
+function reformatPairsForOmmission(similarPairs: string) {
+    // Regular expression to match "ref": "XXX Y:Z", where XXX Y:Z is any book, chapter, and verse reference
+    const refRegex = /"ref":\s*"[A-Z0-9]+ \d+:\d+",?\n?/g;
+    const sourceWhitespaceRegex = /\s+(?="source)/g;
+    
+    let result = similarPairs.replace(refRegex, '');
+    result = result.replace(sourceWhitespaceRegex, '\n\t');
+    
+    return result;
+}
+
+function reformatPairs(similarPairs: string) {
+    const sourceWhitespaceRegex = /\s+(?="source)/g;
+    
+    let result = similarPairs.replace(sourceWhitespaceRegex, '\n\t');
+    
+    return result;
+}
+
 export {
     VerseData,
     getVerseData,
@@ -571,3 +647,5 @@ export {
     makeCompletionRequest,
     formatCompletionResponse
 };
+    
+

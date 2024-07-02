@@ -17,6 +17,7 @@ export interface CompletionConfig {
     contextSize: string,
     sourceTextFile: string;
     additionalResourceDirectory: string;
+    contextOmmission: boolean;
 }
 
 export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarItem) {
@@ -129,9 +130,11 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             model: config.get("model") || "",
             sourceTextFile: config.get("sourceTextFile") || "",
             contextSize: config.get("contextSize") || "medium",
-            additionalResourceDirectory: config.get("additionalResourcesDirectory") || ""
+            additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
+            contextOmmission: config.get("experimentalContextOmmission") || false
         };
     } catch (error) {
+        
         console.error("Error getting completion configuration", error);
         throw new Error("Failed to get completion configuration");
     }
