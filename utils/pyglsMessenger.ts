@@ -30,6 +30,27 @@ async function sendMessage(data: string): Promise<string> {
   });
 }
 
+async function checkServerLife(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(1000); // Set a 1-second timeout
+
+    socket.connect(PORT, HOST, () => {
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.on('error', () => {
+      resolve(false);
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
 class PythonMessenger {
   private async sendRequest(functionName: string, args: any): Promise<any> {
     const requestData = JSON.stringify({ function_name: functionName, args });
@@ -65,9 +86,6 @@ class PythonMessenger {
   async detectAnomalies(query: string, limit: number = 10): Promise<any> {
     return this.sendRequest('detect_anomalies', { query, limit });
   }
-  async searchForEdits(before: string, after: string): Promise<any> {
-    return this.sendRequest('search_for_edits', { before, after });
-  }
 
   async applyEdit(uri: string, before: string, after: string): Promise<any> {
     return this.sendRequest('apply_edit', { uri, before, after });
@@ -88,6 +106,10 @@ class PythonMessenger {
     const response = await this.sendRequest('set_status', {value, key});
     return response['status'];
   }
+  async smartEdit(before: string, after: string, query: string): Promise<any> {
+    const response = await this.sendRequest('smart_edit', {before, after, query});
+    return response['text'];
+  }
 }
 
-export { PythonMessenger };
+export { PythonMessenger, checkServerLife };

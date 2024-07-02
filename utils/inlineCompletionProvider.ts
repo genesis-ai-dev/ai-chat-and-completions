@@ -7,8 +7,8 @@ let autocompleteCancellationTokenSource: vscode.CancellationTokenSource | undefi
 
 export const MAX_TOKENS = 4000;
 export const TEMPERATURE = 0.8;
+const sharedStateExtension = vscode.extensions.getExtension("project-accelerate.shared-state-store");
 
-let currentConfig: CompletionConfig;
 
 export interface CompletionConfig {
     endpoint: string;
@@ -18,13 +18,6 @@ export interface CompletionConfig {
     sourceTextFile: string;
     additionalResourceDirectory: string;
 }
-
-// Initialize the config listener
-vscode.workspace.onDidChangeConfiguration(async e => {
-    if (e.affectsConfiguration('translators-copilot')) {
-        currentConfig = await fetchCompletionConfig();
-    }
-});
 
 export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarItem) {
     if (isAutocompletingInProgress) {
@@ -125,6 +118,11 @@ function cancelAutocompletion(message: string) {
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
         const config = vscode.workspace.getConfiguration("translators-copilot");
+        if (sharedStateExtension) {
+            const stateStore = sharedStateExtension.exports;
+            stateStore.updateStoreState({ key: 'currentUserAPI', value: config.get("api_key") || "" });
+        }
+    
         return {
             endpoint: config.get("llmEndpoint") || "",
             apiKey: config.get("api_key") || "",
@@ -156,7 +154,6 @@ export async function readMetadataJson(): Promise<any> {
 
 export async function findVerseRef(): Promise<string | undefined> {
     try {
-        const sharedStateExtension = vscode.extensions.getExtension("project-accelerate.shared-state-store");
         if (sharedStateExtension) {
             const sharedStateStore = sharedStateExtension.exports;
             const verseRefObject = await sharedStateStore.getStoreState("verseRef");

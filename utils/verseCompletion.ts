@@ -6,6 +6,7 @@ import { PythonMessenger } from "./pyglsMessenger";
 import { MAX_TOKENS, TEMPERATURE, CompletionConfig, readMetadataJson, findVerseRef, getAdditionalResources, findSourceText} from "./inlineCompletionProvider";
 
 const pyMessenger = new PythonMessenger();
+let abort = false;
 
 interface VerseData {
     sourceLanguageName: string;
@@ -184,7 +185,8 @@ async function getSimilarPairs(verseRef: string, contextSize: string): Promise<s
         ]);
         
         if (Array.isArray(result)) {
-            return result.map(item => JSON.stringify(item, null, 2)).join('\n\n');
+            const toRet = result.map(item => JSON.stringify(item, null, 2)).join('\n\n');
+            return toRet;
         } else {
             throw new Error("Unexpected result format from getSimilarDrafts");
         }
@@ -426,19 +428,20 @@ async function completeVerse(config: CompletionConfig, verseData: VerseData): Pr
         const workspaceFolders = vscode.workspace.workspaceFolders;
         
         ////////////////////////////////
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            throw new Error('No workspace folder is open.');
-        }
-        const messagesFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, 'messages.txt');
-        const messagesContent = messages.map(message => `${message.role}: ${message.content}`).join('\n\n');
+        // //for seeing the message sent to the API
+        // if (!workspaceFolders || workspaceFolders.length === 0) {
+        //     throw new Error('No workspace folder is open.');
+        // }
+        // const messagesFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, 'messages.txt');
+        // const messagesContent = messages.map(message => `${message.role}: ${message.content}`).join('\n\n');
 
-        try {
-            await vscode.workspace.fs.writeFile(messagesFilePath, new TextEncoder().encode(messagesContent));
-            console.log('Messages written to messages.txt');
-        } catch (error) {
-            console.error('Error writing messages to messages.txt:', error);
-            throw new Error('Failed to write messages to messages.txt');
-        }
+        // try {
+        //     await vscode.workspace.fs.writeFile(messagesFilePath, new TextEncoder().encode(messagesContent));
+        //     console.log('Messages written to messages.txt');
+        // } catch (error) {
+        //     console.error('Error writing messages to messages.txt:', error);
+        //     throw new Error('Failed to write messages to messages.txt');
+        // }
         ///////////////////////////////
 
         if (!workspaceFolders || workspaceFolders.length === 0) {
