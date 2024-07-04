@@ -24,7 +24,7 @@
         "type": "object",
         "title": "Required",
         "properties": {
-          "translators-copilot.api_key": {
+          "translators-copilot.required.api_key": {
             "type": "string",
             "default": "",
             "description": "Your own openai API key. Ignorable for local LLM."
@@ -35,19 +35,19 @@
         "type": "object",
         "title": "General",
         "properties": {
-          "translators-copilot.sourceTextSelectionMode": {
+          "translators-copilot.general.sourceTextSelectionMode": {
             "type": "string",
             "default": "auto",
             "description": "The method of selecting the source text. If set to manual, use 'ctrl + s, ctrl + b' to change the source text.",
             "enum": ["auto", "manual"]
           },
-          "translators-copilot.contextSize": {
+          "translators-copilot.general.contextSize": {
             "type": "string",
             "default": "large",
             "description": "The size of the context to be used for completion.",
             "enum": ["small", "medium", "large"]
           },
-          "translators-copilot.additionalResourcesDirectory": {
+          "translators-copilot.general.additionalResourcesDirectory": {
             "type": "string",
             "default": "",
             "description": "The directory path containing additional resources for completion context. Will read all files in directory and put them in the context. No recources if path is invalid."
@@ -58,22 +58,22 @@
         "type": "object",
         "title": "Defaults Recommended",
         "properties": {
-          "translators-copilot.llmEndpoint": {
+          "translators-copilot.defaultsRecommended.llmEndpoint": {
             "type": "string",
             "default": "https://api.openai.com/v1",
             "description": "The endpoint for the completion API. Currently only supports OpenAI API."
           },
-          "translators-copilot.model": {
+          "translators-copilot.defaultsRecommended.model": {
             "type": "string",
             "default": "gpt-4o",
             "description": "Model name selected for inference. Ignorable for local LLM."
           },
-          "translators-copilot.sourceBookWhitelist": {
+          "translators-copilot.defaultsRecommended.sourceBookWhitelist": {
             "type": "string",
             "default": "",
             "description": "Limits context building to specified books. Leave empty to include all. We recommend to leave empty for best results."
           },
-          "translators-copilot.experimentalContextOmission": {
+          "translators-copilot.defaultsRecommended.experimentalContextOmission": {
             "type": "boolean",
             "default": "false",
             "description": "Will omit reference to the Bible in the API request. This removes scripture biase."
