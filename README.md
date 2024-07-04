@@ -5,44 +5,58 @@ Translator's Copilot is a Codex extension designed to assist with Bible translat
 ## Features
 
 - AI-assisted inline completions for Bible verses
+- Currated for translating into low-resource languages
 - Integration with project-specific resources and parallel passages
-- Side panel for additional information and interactions
-- Customizable completion modes (only verse completion is currently implemented)
-  
+- Side panel for additional information and interactions (not yet developed)
 
 ## Installation
 
-1. Open Visual Studio Code
+1. Open Codex
 2. Go to the Extensions view (Ctrl+Shift+X)
-3. Search for "translators-copilot"
+3. Search for "Translator's Copilot"
 4. Click Install
 
 ## Configuration
 
 Configure the extension in your VS Code settings:
 
-- `translators-copilot.llmEndpoint`: API endpoint for completions (default: OpenAI)
-- `translators-copilot.api_key`: Your API key (required for OpenAI)
-- `translators-copilot.model`: Language model to use (e.g., "gpt-3.5-turbo")
-- `translators-copilot.max_tokens`: Maximum tokens for completions
-- `translators-copilot.temperature`: Randomness of completions (0.0 - 1.0)
-- `translators-copilot.sourceTextFile`: Source text file name
-- `translators-copilot.additionalResourcesDirectory`: Directory for additional resources
-- `translators-copilot.completionMode`: Completion mode (verse, chapter, token)
+Must be configured:
+- `translators-copilot.required.api_key`: Your API key (required for OpenAI (which is currently the only supported API))
+
+May be configured:
+- `translators-copilot.general.sourceTextSelectionMode`: Method of selecting source text ("auto" or "manual")
+- `translators-copilot.general.contextSize`: Size of context for completion ("small", "medium", or "large")
+- `translators-copilot.general.additionalResourcesDirectory`: Directory path for additional resources
+
+It is recommended not to configure:
+- `translators-copilot.defaultsRecommended.llmEndpoint`: API endpoint for completions
+- `translators-copilot.defaultsRecommended.model`: Language model to use
+- `translators-copilot.defaultsRecommended.sourceBookWhitelist`: Limit context building to specified books
+- `translators-copilot.defaultsRecommended.experimentalContextOmission`: Option to omit Bible references in API requests
 
 ## Usage
 
-1. Open a Codex translation project
+1. Open a translation project in VS Code
 2. Place your cursor at the end of a verse you're working on
-3. Use the keyboard shortcut (Alt+Q) or command palette to trigger an inline completion
+3. Use the keyboard shortcut (Alt+Q) or right-click menu to trigger an inline completion
 4. Accept or modify the suggested completion as needed
+
+For manual source text selection:
+- Use the keyboard shortcut Ctrl+S, Ctrl+B (Cmd+S, Cmd+B on Mac) when the source text selection mode is set to "manual"
 
 ## Requirements
 
-- Visual Studio Code 1.85.0 or higher
-- An active internet connection for API access
-- Properly structured Codex project
+- Visual Studio Code 1.85.0 or higher OR VScodium 1.85.0 or higher OR the Codex app
+- basic Codex extensions (Codex Editor along with the extensions it automatically downloads)
+- An active internet connection for API access (unless using a local LLM)
+- Properly structured translation project (Use the Codex Project Manager extension to set this up)
+
+## Additional Features
+
+- Keybind (alt + q) and CodeLens support for easy completion triggering
+- Integration with eBible corpus for source text management
+- Ability to use additional resources for translation assistance
 
 ## License
 
-This project is licensed under the MIT License License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
