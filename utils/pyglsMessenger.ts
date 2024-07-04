@@ -71,8 +71,8 @@ class PythonMessenger {
   async getMostSimilar(textType: string, text: string): Promise<any> {
     return this.sendRequest('get_most_similar', { text_type: textType, text });
   }
-  async getSimilarDrafts(ref: string, limit: number=5): Promise<any> {
-    return this.sendRequest('get_similar_drafts', {'ref': ref, 'limit': limit});
+  async getSimilarDrafts(ref: string, limit: number=5, whitelist: string=""): Promise<any> {
+    return this.sendRequest('get_similar_drafts', {'ref': ref, 'limit': limit, 'whitelist': whitelist});
   }
 
   async getRarity(textType: string, text: string): Promise<any> {

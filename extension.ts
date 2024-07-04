@@ -69,6 +69,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
         context.subscriptions.push(commandDisposable);
 
+        // Register the manual source text selection command
+        let manualSourceTextSelectionDisposable = vscode.commands.registerCommand(
+            "extension.manualSourceTextSelection",
+            async () => {
+                // Import the function from inlineCompletionProvider
+                const { triggerManualSourceSelection } = await import("./utils/inlineCompletionProvider");
+                await triggerManualSourceSelection();
+            }
+        );
+
+        context.subscriptions.push(manualSourceTextSelectionDisposable);
+
         // Register the CodeLensProvider
         context.subscriptions.push(
             vscode.languages.registerCodeLensProvider(

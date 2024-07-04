@@ -69,7 +69,8 @@ async function getVerseData(config: CompletionConfig, document: vscode.TextDocum
         verseData.currentVerse = extractCurrentVerse(textBeforeCursor, verseData.verseRef);
 
         try {
-            verseData.similarPairs = await getSimilarPairs(verseData.verseRef, config.contextSize);
+            verseData.similarPairs = await getSimilarPairs(verseData.verseRef, config.contextSize, config.sourceBookWhitelist);
+            console.log(config.sourceBookWhitelist);
         } catch (error) {
             console.warn(`Error getting similar pairs: ${error}`);
             verseData.similarPairs = "Similar pairs unavailable";
@@ -160,7 +161,7 @@ function extractCurrentVerse(text: string, verseRef: string): string {
     return "";
 }
 
-async function getSimilarPairs(verseRef: string, contextSize: string): Promise<string> {
+async function getSimilarPairs(verseRef: string, contextSize: string, sourceBookWhitelist: string): Promise<string> {
     
     let similarPairsCount;
     switch (contextSize) {
@@ -180,7 +181,7 @@ async function getSimilarPairs(verseRef: string, contextSize: string): Promise<s
 
     try {
         let result = await Promise.race([
-            pyMessenger.getSimilarDrafts(verseRef, similarPairsCount),
+            pyMessenger.getSimilarDrafts(verseRef, similarPairsCount, sourceBookWhitelist),
             new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Request timed out")), 2000))
         ]);
         
@@ -422,13 +423,13 @@ async function findTargetVerse(verseRef: string): Promise<string | null> {
 
 async function completeVerse(config: CompletionConfig, verseData: VerseData): Promise<string> {
     try {
-        const messages = config.contextOmmission? buildUnbiblicalVerseMessages(verseData) : buildVerseMessages(verseData);
+        const messages = config.contextOmission? buildUnbiblicalVerseMessages(verseData) : buildVerseMessages(verseData);
         const response = await makeCompletionRequest(config, messages, verseData.currentVerse);
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         
         ////////////////////////////////
-        //for seeing the message sent to the API
+        // //for seeing the message sent to the API
         // if (!workspaceFolders || workspaceFolders.length === 0) {
         //     throw new Error('No workspace folder is open.');
         // }
@@ -442,7 +443,7 @@ async function completeVerse(config: CompletionConfig, verseData: VerseData): Pr
         //     console.error('Error writing messages to messages.txt:', error);
         //     throw new Error('Failed to write messages to messages.txt');
         // }
-        ///////////////////////////////
+        ////////////////////////////////
 
         if (!workspaceFolders || workspaceFolders.length === 0) {
             throw new Error('No workspace folder is open.');
@@ -546,12 +547,12 @@ Partial Translation: ${verseData.currentVerse.replace(verseData.verseRef, "")}
             
 ${verseData.similarPairs && verseData.similarPairs !== "" ? `### Similar Translations
             
-${reformatPairsForOmmission(verseData.similarPairs)}
+${reformatPairsForOmission(verseData.similarPairs)}
             
 ` : ''}
 ${verseData.surroundingContext && verseData.surroundingContext !== "" ? `### Translation of Surrounding Text
             
-${reformatPairsForOmmission(verseData.surroundingContext)}
+${reformatPairsForOmission(verseData.surroundingContext)}
             
 ` : ''}
 ${verseData.otherResources && verseData.otherResources !== "" ? `### Additional Resources
@@ -620,7 +621,7 @@ function formatCompletionResponse(text: string, currentVerse: string): string {
     return formattedText;
 }
 
-function reformatPairsForOmmission(similarPairs: string) {
+function reformatPairsForOmission(similarPairs: string) {
     // Regular expression to match "ref": "XXX Y:Z", where XXX Y:Z is any book, chapter, and verse reference
     const refRegex = /"ref":\s*"[A-Z0-9]+ \d+:\d+",?\n?/g;
     const sourceWhitespaceRegex = /\s+(?="source)/g;

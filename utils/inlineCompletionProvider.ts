@@ -1,9 +1,17 @@
 import * as vscode from "vscode";
 import { verseCompletion } from "./verseCompletion";
+import {
+EbibleCorpusMetadata,
+downloadEBibleText,
+ensureVrefList,
+getEBCorpusMetadataByLanguageCode,
+} from "./ebibleCorpusUtils";
+import * as path from "path";
 
 let shouldProvideCompletion = false;
 let isAutocompletingInProgress = false;
 let autocompleteCancellationTokenSource: vscode.CancellationTokenSource | undefined;
+let currentSourceText = "";
 
 export const MAX_TOKENS = 4000;
 export const TEMPERATURE = 0.8;
@@ -14,10 +22,10 @@ export interface CompletionConfig {
     endpoint: string;
     apiKey: string;
     model: string;
-    contextSize: string,
-    sourceTextFile: string;
+    contextSize: string;
     additionalResourceDirectory: string;
-    contextOmmission: boolean;
+    contextOmission: boolean;
+    sourceBookWhitelist: string;
 }
 
 export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarItem) {
@@ -128,13 +136,13 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             endpoint: config.get("llmEndpoint") || "",
             apiKey: config.get("api_key") || "",
             model: config.get("model") || "",
-            sourceTextFile: config.get("sourceTextFile") || "",
             contextSize: config.get("contextSize") || "medium",
             additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
-            contextOmmission: config.get("experimentalContextOmmission") || false
+            contextOmission: config.get("experimentalContextOmission") || false,
+            sourceBookWhitelist: config.get("sourceBookWhitelist") || ""
         };
     } catch (error) {
-        
+
         console.error("Error getting completion configuration", error);
         throw new Error("Failed to get completion configuration");
     }
@@ -235,9 +243,46 @@ export async function getAdditionalResources(verseRef: string): Promise<string> 
 }
 
 export async function findSourceText(): Promise<string | null> {
-    const configuredFile = (await fetchCompletionConfig()).sourceTextFile;
-    const workspaceFolders = vscode.workspace.workspaceFolders;
+    let toRet;
+    const sourceTextSelectionMode: string = vscode.workspace.getConfiguration("translators-copilot").get("sourceTextSelectionMode") || "auto";
+    if (sourceTextSelectionMode === "manual") {
+        
+        if (currentSourceText == "") {currentSourceText = await manuallySelectSourceTextFile() || "";}
+        if (currentSourceText == "") {
+            vscode.window.showWarningMessage("Failed to manually select source text.");
+            currentSourceText = await automaticalySelectSourceTextFile() || "";
+            if (currentSourceText == "") {
+                vscode.window.showWarningMessage("Failed to automatically select source text.");
+            }
+        }
 
+        toRet = currentSourceText;
+    } else {
+        currentSourceText = await automaticalySelectSourceTextFile() || "";
+        if (currentSourceText == "") {
+            vscode.window.showWarningMessage("Failed to automatically select source text.");
+        }
+        
+        toRet = currentSourceText;
+        currentSourceText = "";
+    }
+    
+    return toRet;
+}
+
+export async function triggerManualSourceSelection() {
+    currentSourceText = await manuallySelectSourceTextFile() || "";
+    if (currentSourceText == "") {
+        vscode.window.showWarningMessage("Failed to manually select source text.");
+        currentSourceText = await automaticalySelectSourceTextFile() || "";
+        if (currentSourceText == "") {
+            vscode.window.showWarningMessage("Failed to automatically select source text.");
+        }
+    }
+}
+
+async function manuallySelectSourceTextFile(): Promise<string | null> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         vscode.window.showErrorMessage("No workspace folder found. Please open a folder and try again.");
         return null;
@@ -252,29 +297,138 @@ export async function findSourceText(): Promise<string | null> {
         return null;
     }
 
-    try {
-        const files = await vscode.workspace.fs.readDirectory(sourceTextBiblesPath);
-        const bibleFiles = files
-            .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.bible'))
-            .map(([name]) => name);
+    const metadata = await readMetadataJson();
+    const sourceLanguageCode = metadata.languages.find((lang: any) => lang.projectStatus === 'source')?.tag || "";
+   
+    if (!sourceLanguageCode) {
+        vscode.window.showErrorMessage("No source language specified in project metadata.");
+        return null;
+    }
 
-        if (configuredFile) {
-            if (bibleFiles.includes(configuredFile)) {
-                return vscode.Uri.joinPath(sourceTextBiblesPath, configuredFile).fsPath;
-            } else {
-                vscode.window.showWarningMessage(`Configured source text file "${configuredFile}" not found. Defaulting to first available Bible file.`);
-            }
+    let ebibleCorpusMetadata: EbibleCorpusMetadata[] = getEBCorpusMetadataByLanguageCode(sourceLanguageCode);
+    if (ebibleCorpusMetadata.length === 0) {
+        vscode.window.showInformationMessage(`No text bibles found for ${sourceLanguageCode} in the eBible corpus.`);
+        ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles if no language is specified
+    }
+
+    const selectedCorpus = await vscode.window.showQuickPick(
+        ebibleCorpusMetadata.map((corpus) => ({ label: corpus.file })),
+        {
+          placeHolder: `Select a source text bible.`,
         }
+    );
 
-        if (bibleFiles.length > 0) {
-            return vscode.Uri.joinPath(sourceTextBiblesPath, bibleFiles[0]).fsPath;
-        } else {
-            vscode.window.showErrorMessage("No .bible files found in the sourceTextBibles directory.");
+    if (!selectedCorpus) {
+        return null;
+    }
+
+    const selectedCorpusMetadata = ebibleCorpusMetadata.find(
+        (corpus) => corpus.file === selectedCorpus.label
+    );
+
+    if (!selectedCorpusMetadata) {
+        return null;
+    }
+
+    
+    // Remove any existing file extension and add .bible
+    const fileName = selectedCorpusMetadata.file.replace(/\.[^/.]+$/, "");
+    const bibleFilePath = vscode.Uri.joinPath(sourceTextBiblesPath, `${fileName}.bible`);
+
+
+    try {
+        await vscode.workspace.fs.stat(bibleFilePath);
+        return bibleFilePath.fsPath;
+    } catch {
+        // Bible file doesn't exist, download it
+        const workspaceRoot = workspaceFolders[0].uri.fsPath; // Define workspaceRoot
+        try { 
+            handleBibleDownload(selectedCorpusMetadata, workspaceRoot);
+            return bibleFilePath.fsPath;
+        } catch {
+            vscode.window.showErrorMessage("Failed to download source text. Please download it through the Project Manager extension and try again.");
             return null;
         }
-    } catch (error) {
-        console.error("Error reading sourceTextBibles directory", error);
-        vscode.window.showErrorMessage("Failed to read sourceTextBibles directory. Please check your workspace structure.");
+    }
+
+}
+
+async function automaticalySelectSourceTextFile(): Promise<string | null> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showErrorMessage("No workspace folder found. Please open a folder and try again.");
+        return null;
+    }
+
+    const sourceTextBiblesPath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "sourceTextBibles");
+    const files = await vscode.workspace.fs.readDirectory(sourceTextBiblesPath);
+    const bibleFiles = files
+        .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.bible'))
+        .map(([name]) => name);
+    
+    if (bibleFiles.length > 0) {
+        return vscode.Uri.joinPath(sourceTextBiblesPath, bibleFiles[0]).fsPath;
+    } else {
+        vscode.window.showErrorMessage("No .bible files found in the sourceTextBibles directory.");
         return null;
     }
 }
+
+//copied from project manager and modified
+async function handleBibleDownload(corpusMetadata: EbibleCorpusMetadata, workspaceRoot: string) {
+    const vrefPath = await ensureVrefList(workspaceRoot);
+  
+    const bibleTextPath = path.join(
+      workspaceRoot,
+      ".project", "sourceTextBibles",
+      corpusMetadata.file
+    );
+    const bibleTextPathUri = vscode.Uri.file(bibleTextPath);
+    const LANG_TYPE = "source";
+    await downloadEBibleText(corpusMetadata, workspaceRoot, LANG_TYPE);
+    vscode.window.showInformationMessage(
+    `Bible text for ${corpusMetadata.lang} downloaded successfully.`
+    );
+    
+  
+    // Read the vref.txt file and the newly downloaded bible text file
+    const vrefFilePath = vscode.Uri.file(vrefPath);
+    const vrefFileData = await vscode.workspace.fs.readFile(vrefFilePath);
+    const vrefLines = new TextDecoder("utf-8")
+      .decode(vrefFileData)
+      .split(/\r?\n/);
+  
+    const bibleTextData = await vscode.workspace.fs.readFile(
+      bibleTextPathUri
+    );
+    const bibleLines = new TextDecoder("utf-8")
+      .decode(bibleTextData)
+      .split(/\r?\n/);
+  
+    // Zip the lines together
+    const zippedLines = vrefLines
+      .map((vrefLine, index) => `${vrefLine} ${bibleLines[index] || ""}`)
+      .filter((line) => line.trim() !== "");
+  
+    // Write the zipped lines to a new .bible file
+    let fileNameWithoutExtension = corpusMetadata.file.includes(".")
+      ? corpusMetadata.file.split(".")[0]
+      : corpusMetadata.file;
+  
+    const bibleFilePath = path.join(
+      workspaceRoot,
+      ".project",
+      "sourceTextBibles",
+      `${fileNameWithoutExtension}.bible`
+    );
+    const bibleFileUri = vscode.Uri.file(bibleFilePath);
+    await vscode.workspace.fs.writeFile(
+      bibleFileUri,
+      new TextEncoder().encode(zippedLines.join("\n"))
+    );
+  
+    vscode.window.showInformationMessage(
+      `.bible file created successfully at ${bibleFilePath}`
+    );
+  }
